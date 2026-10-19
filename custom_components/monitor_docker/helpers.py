@@ -667,6 +667,15 @@ class DockerAPI:
                     self._config,
                 )
         else:
+            # Do not leave a broken monitor behind (e.g. the renamed old
+            # container was already gone when we tried to attach).
+            if cname in self._containers:
+                _LOGGER.debug(
+                    "[%s] %s: Removing failed container monitor",
+                    self._instance,
+                    cname,
+                )
+                del self._containers[cname]
             _LOGGER.error(
                 "[%s] %s: Problem during start of monitoring", self._instance, cname
             )
@@ -1036,6 +1045,16 @@ class DockerContainerAPI:
             )
         else:
             self._gone = 0
+            # The container was recreated with a new id: stats deltas from
+            # the old one (network/cpu/previous values) are garbage. Reset
+            # them to avoid negative deltas in the first cycle after
+            # re-attaching.
+            self._cpu_old = {}
+            self._network_old = {}
+            self._memory_prev = None
+            self._memory_prev_breach = False
+            self._memory_percent_prev = None
+            self._memory_percent_prev_breach = False
             _LOGGER.info(
                 "[%s] %s: Re-attached to recreated container",
                 self._instance,
