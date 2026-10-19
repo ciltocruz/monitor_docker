@@ -1,10 +1,45 @@
-# Custom Monitor Docker component for Home Assistant
+# Monitor Docker for Home Assistant — recreated-container fix (fork)
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge)](https://github.com/hacs/integration)
+<div align="center">
 
-## About
+**A maintained fork of [ualex73/monitor_docker](https://github.com/ualex73/monitor_docker)** with a fix for container recreation:
 
-This repository contains the Monitor Docker component I developed for monitoring my Docker environment from [Home-Assistant](https://www.home-assistant.io). It is inspired by the Sander Huisman [Docker Monitor](https://github.com/Sanderhuisman/docker_monitor), where I switched mainly from threads to asyncio and added my own wishes/functionality. Feel free to use the component and report bugs if you find them. If you want to contribute, please report a bug or pull request, and I will reply as soon as possible.
+**Watchtower / `docker compose up -d` / podman no longer break your monitors.**
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
+[![upstream](https://img.shields.io/badge/fork%20of-ualex73%2Fmonitor__docker-blue.svg?style=for-the-badge)](https://github.com/ualex73/monitor_docker)
+[![fixes](https://img.shields.io/badge/fixes-upstream%20%23188-green.svg?style=for-the-badge)](https://github.com/ualex73/monitor_docker/issues/188)
+
+</div>
+
+## The problem this fork fixes (upstream issue #188)
+
+When a container is **recreated** — Watchtower update, `docker compose up -d`, podman restart, ... — the original integration kept monitoring the **old container ID** forever:
+
+- 📉 Entities stayed **stale/unknown** until Home Assistant was restarted.
+- 🔁 Log spam every 60 seconds: `Container not available anymore (3a) ([404] No such container: ...) Retry in 60 seconds`.
+- 🧟 If the Docker `destroy` event was missed (docker proxy, races), a later `create` event was dropped with `Container already monitored`, leaving a zombie monitor.
+
+**This fork self-heals.** On a 404 it re-attaches to the recreated container by name (`Re-attached to recreated container`); if the container really is gone, it drops the monitor cleanly so entities are recreated on the next create event. Stats deltas (CPU/network/memory) are reset on re-attach, so no more `network tx/rx became negative` warnings after an update.
+
+Verified live: recreate a container with Watchtower or compose and the monitor recovers itself — no restart needed, no 404 loops.
+
+## Installation (HACS)
+
+This is a **custom repository** install:
+
+1. HACS → Integrations → **⋮** → *Add custom repository*.
+2. Repository URL: `https://github.com/ciltocruz/monitor_docker` — Category: **Integration**.
+3. Install **Monitor Docker (recreate fix)**.
+4. Restart Home Assistant.
+
+Manual install: copy `custom_components/monitor_docker/` (from a [release](https://github.com/ciltocruz/monitor_docker/releases) zip) into your `custom_components` directory and restart Home Assistant.
+
+---
+
+## About (upstream)
+
+This repository contains the Monitor Docker component developed by ualex73 for monitoring a Docker environment from [Home-Assistant](https://www.home-assistant.io). It is inspired by the Sander Huisman [Docker Monitor](https://github.com/Sanderhuisman/docker_monitor), where it switched mainly from threads to asyncio. Here the recreation fix is maintained on top of it. Feel free to use the component and report bugs if you find them. If you want to contribute, please report a bug or pull request, and it will be answered as soon as possible.
 
 ## Monitor Docker
 
