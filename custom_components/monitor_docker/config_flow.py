@@ -245,6 +245,7 @@ class DockerConfigFlow(ConfigFlow, domain=DOMAIN):
                             CONF_CONTAINERS, default=self.data[CONF_CONTAINERS]
                         ): selector.SelectSelector(
                             selector.SelectSelectorConfig(
+                                mode="list",
                                 # Every container on the host, plus selected ones
                                 # that do not exist right now
                                 options=sorted(
@@ -264,6 +265,7 @@ class DockerConfigFlow(ConfigFlow, domain=DOMAIN):
                             default=self.data.get(CONF_CONTAINERS_EXCLUDE) or [],
                         ): selector.SelectSelector(
                             selector.SelectSelectorConfig(
+                                mode="list",
                                 options=sorted(
                                     set(self._docker_api.list_all_containers())
                                     | set(self.data.get(CONF_CONTAINERS_EXCLUDE) or [])
