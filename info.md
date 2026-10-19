@@ -67,6 +67,8 @@ NOTE: This is untested, use at your risk
 
 ### Configuration
 
+**Setup in the UI:** add "Monitor Docker" under Settings → Devices & services. Existing `configuration.yaml` entries are imported automatically on the next start (entity IDs stay the same); after that the YAML section can be removed.
+
 To use the `monitor_docker` in your installation, add the following to your `configuration.yaml` file:
 
 ```yaml

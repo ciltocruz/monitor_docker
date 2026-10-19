@@ -1,44 +1,82 @@
 """Monitor Docker switch component."""
 
 import asyncio
+from collections.abc import Mapping
 import logging
 import re
 from typing import Any
 
 import voluptuous as vol
-from custom_components.monitor_docker.helpers import DockerAPI, DockerContainerAPI
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.switch import ENTITY_ID_FORMAT, SwitchEntity
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import slugify
 
 from .const import (
+    HOST_DEVICE_ID,
     API,
     ATTR_NAME,
     ATTR_SERVER,
     CONF_CONTAINERS,
-    CONF_CONTAINERS_EXCLUDE,
-    CONF_PREFIX,
-    CONF_RENAME,
-    CONF_RENAME_ENITITY,
     CONF_SWITCHENABLED,
-    CONF_SWITCHNAME,
     CONFIG,
     CONTAINER,
     CONTAINER_INFO_STATE,
     DOMAIN,
+    SIGNAL_CONTAINER_ADDED,
     SERVICE_RESTART,
 )
+from . import legacy_ids
+from .helpers import (
+    DockerAPI,
+    DockerContainerAPI,
+    DockerContainerEntity,
+    is_container_selected,
+)
+
 
 SERVICE_RESTART_SCHEMA = vol.Schema(
     {ATTR_NAME: cv.string, vol.Optional(ATTR_SERVER): cv.string}
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Sensor set up for Hass.io config entry."""
+    instance = config_entry.data[CONF_NAME]
+    await async_setup_platform(
+        hass=hass,
+        config=config_entry.data,
+        async_add_entities=async_add_entities,
+        discovery_info={CONF_NAME: instance},
+    )
+
+    async def async_container_added(cname: str) -> None:
+        """Add the entities of a container that appeared after start-up."""
+        await async_setup_platform(
+            hass=hass,
+            config=config_entry.data,
+            async_add_entities=async_add_entities,
+            discovery_info={CONF_NAME: instance, CONTAINER: cname},
+        )
+
+    config_entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, SIGNAL_CONTAINER_ADDED.format(instance), async_container_added
+        )
+    )
 
 
 async def async_setup_platform(
@@ -53,7 +91,7 @@ async def async_setup_platform(
         cname = parm.data[ATTR_NAME]
         cserver = parm.data.get(ATTR_SERVER, None)
 
-        server_name = name
+        server_name = instance
         if cserver is not None:
             if cserver not in hass.data[DOMAIN]:
                 _LOGGER.error("Server '%s' is not configured", cserver)
@@ -95,14 +133,8 @@ async def async_setup_platform(
         return
 
     instance: str = discovery_info[CONF_NAME]
-    name: str = discovery_info[CONF_NAME]
-    api: DockerAPI = hass.data[DOMAIN][name][API]
-    config: ConfigType = hass.data[DOMAIN][name][CONFIG]
-
-    # Set or overrule prefix
-    prefix = name
-    if config[CONF_PREFIX]:
-        prefix = config[CONF_PREFIX]
+    api: DockerAPI = hass.data[DOMAIN][instance][API]
+    config: ConfigType = hass.data[DOMAIN][instance][CONFIG]
 
     # Don't create any switch if disabled
     if config[CONF_SWITCHENABLED] == False:
@@ -120,34 +152,20 @@ async def async_setup_platform(
         clist = api.list_containers()
 
     for cname in clist:
-        includeContainer = False
-        if cname in config[CONF_CONTAINERS] or not config[CONF_CONTAINERS]:
-            includeContainer = True
-
-        if config[CONF_CONTAINERS_EXCLUDE] and cname in config[CONF_CONTAINERS_EXCLUDE]:
-            includeContainer = False
-
-        if includeContainer:
+        if is_container_selected(config, cname):
             if (
                 config[CONF_SWITCHENABLED] == True
                 or cname in config[CONF_SWITCHENABLED]
             ):
                 _LOGGER.debug("[%s] %s: Adding component Switch", instance, cname)
 
-                # Only force rename of entityid is requested, to not break backwards compatibility
-                alias_entityid = cname
-                if config[CONF_RENAME_ENITITY]:
-                    alias_entityid = find_rename(config[CONF_RENAME], cname)
-
                 switches.append(
                     DockerContainerSwitch(
                         api.get_container(cname),
                         instance=instance,
-                        prefix=prefix,
                         cname=cname,
-                        alias_entityid=alias_entityid,
-                        alias_name=find_rename(config[CONF_RENAME], cname),
-                        name_format=config[CONF_SWITCHNAME],
+                        config=config,
+                        host_device_id=hass.data[DOMAIN][instance].get(HOST_DEVICE_ID),
                     )
                 )
             else:
@@ -169,37 +187,36 @@ async def async_setup_platform(
 
 
 #################################################################
-class DockerContainerSwitch(SwitchEntity):
+class DockerContainerSwitch(SwitchEntity, DockerContainerEntity):
     def __init__(
         self,
         container: DockerContainerAPI,
         instance: str,
-        prefix: str,
         cname: str,
-        alias_entityid: str,
-        alias_name: str,
-        name_format: str,
+        config: Mapping[str, Any],
+        host_device_id: str | None = None,
     ):
+        super().__init__(
+            container,
+            instance,
+            cname,
+            host_device_id,
+            device_name=legacy_ids.alias_name(config, cname),
+        )
+
         self._container = container
         self._instance = instance
-        self._prefix = prefix
         self._cname = cname
         self._state = False
-        self._entity_id: str = ENTITY_ID_FORMAT.format(
-            slugify(f"{self._prefix}_{alias_entityid}")
+
+        # unique_id as proposed in #212 (credit @lebdim); entity_id and name
+        # as in the YAML-only releases (see legacy_ids)
+        self._attr_unique_id: str = slugify(f"{self._instance}_{self._cname}_switch")
+        self.entity_id = ENTITY_ID_FORMAT.format(
+            legacy_ids.switch_object_id(config, instance, cname)
         )
-        self._name = name_format.format(name=alias_name)
+        self._name = legacy_ids.switch_name(config, cname)
         self._removed = False
-        self._attr_unique_id = slugify(f"{self._instance}_{self._cname}_switch")
-
-    @property
-    def entity_id(self) -> str:
-        """Return the entity id of the switch."""
-        return self._entity_id
-
-    @entity_id.setter
-    def entity_id(self, value: str) -> None:
-        self._entity_id = value
 
     @property
     def name(self) -> str:

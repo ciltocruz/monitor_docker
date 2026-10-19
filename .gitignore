@@ -1,1 +1,3 @@
 **/__pycache__/
+.testdeps/
+.pytest_cache/

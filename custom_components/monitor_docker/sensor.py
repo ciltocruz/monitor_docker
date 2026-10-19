@@ -1,6 +1,7 @@
 """Docker Monitor sensor component."""
 
 import asyncio
+from collections.abc import Mapping
 import logging
 import re
 from datetime import datetime
@@ -11,13 +12,17 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MONITORED_CONDITIONS, CONF_NAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import slugify
 
 from .const import (
+    HOST_DEVICE_ID,
     API,
     ATTR_MEMORY_LIMIT,
     ATTR_ONLINE_CPUS,
@@ -25,12 +30,6 @@ from .const import (
     ATTR_VERSION_KERNEL,
     ATTR_VERSION_OS,
     ATTR_VERSION_OS_TYPE,
-    CONF_CONTAINERS,
-    CONF_CONTAINERS_EXCLUDE,
-    CONF_PREFIX,
-    CONF_RENAME,
-    CONF_RENAME_ENITITY,
-    CONF_SENSORNAME,
     CONFIG,
     CONTAINER,
     CONTAINER_INFO_ALLINONE,
@@ -46,10 +45,47 @@ from .const import (
     DOCKER_INFO_VERSION,
     DOCKER_MONITOR_LIST,
     DOMAIN,
+    SIGNAL_CONTAINER_ADDED,
 )
-from .helpers import DockerAPI, DockerContainerAPI
+from . import legacy_ids
+from .helpers import (
+    DockerAPI,
+    DockerContainerAPI,
+    DockerContainerEntity,
+    is_container_selected,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Sensor set up for Hass.io config entry."""
+    instance = config_entry.data[CONF_NAME]
+    await async_setup_platform(
+        hass=hass,
+        config=config_entry.data,
+        async_add_entities=async_add_entities,
+        discovery_info={CONF_NAME: instance},
+    )
+
+    async def async_container_added(cname: str) -> None:
+        """Add the entities of a container that appeared after start-up."""
+        await async_setup_platform(
+            hass=hass,
+            config=config_entry.data,
+            async_add_entities=async_add_entities,
+            discovery_info={CONF_NAME: instance, CONTAINER: cname},
+        )
+
+    config_entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, SIGNAL_CONTAINER_ADDED.format(instance), async_container_added
+        )
+    )
 
 
 async def async_setup_platform(
@@ -71,20 +107,14 @@ async def async_setup_platform(
         return
 
     instance: str = discovery_info[CONF_NAME]
-    name: str = discovery_info[CONF_NAME]
-    api: DockerAPI = hass.data[DOMAIN][name][API]
-    config: ConfigType = hass.data[DOMAIN][name][CONFIG]
-
-    # Set or overrule prefix
-    prefix = name
-    if config[CONF_PREFIX]:
-        prefix = config[CONF_PREFIX]
+    api: DockerAPI = hass.data[DOMAIN][instance][API]
+    config: ConfigType = hass.data[DOMAIN][instance][CONFIG]
 
     _LOGGER.debug("[%s]: Setting up sensor(s)", instance)
 
     sensors = []
     sensors: list[DockerSensor | DockerContainerSensor] = [
-        DockerSensor(api, instance, prefix, DOCKER_MONITOR_LIST[variable])
+        DockerSensor(api, instance, DOCKER_MONITOR_LIST[variable], config)
         for variable in config[CONF_MONITORED_CONDITIONS]
         if variable in DOCKER_MONITOR_LIST
         if CONTAINER not in discovery_info
@@ -108,14 +138,7 @@ async def async_setup_platform(
             config[CONF_MONITORED_CONDITIONS].remove(CONTAINER_INFO_STATE)
 
     for cname in clist:
-        includeContainer = False
-        if cname in config[CONF_CONTAINERS] or not config[CONF_CONTAINERS]:
-            includeContainer = True
-
-        if config[CONF_CONTAINERS_EXCLUDE] and cname in config[CONF_CONTAINERS_EXCLUDE]:
-            includeContainer = False
-
-        if includeContainer:
+        if is_container_selected(config, cname):
             # Try to figure out if we should include any network sensors
             capi = api.get_container(cname)
             info = capi.get_info()
@@ -140,21 +163,14 @@ async def async_setup_platform(
                     ):
                         monitor_conditions += [variable]
 
-                # Only force rename of entityid is requested, to not break backwards compatibility
-                alias_entityid = cname
-                if config[CONF_RENAME_ENITITY]:
-                    alias_entityid = find_rename(config[CONF_RENAME], cname)
-
                 sensors += [
                     DockerContainerSensor(
                         capi,
                         instance=instance,
-                        prefix=prefix,
                         cname=cname,
-                        alias_entityid=alias_entityid,
-                        alias_name=find_rename(config[CONF_RENAME], cname),
                         description=CONTAINER_MONITOR_LIST[CONTAINER_INFO_ALLINONE],
-                        sensor_name_format=config[CONF_SENSORNAME],
+                        config=config,
+                        host_device_id=hass.data[DOMAIN][instance].get(HOST_DEVICE_ID),
                         condition_list=monitor_conditions,
                     )
                 ]
@@ -167,22 +183,14 @@ async def async_setup_platform(
                             and variable not in CONTAINER_MONITOR_NETWORK_LIST
                         )
                     ):
-
-                        # Only force rename of entityid is requested, to not break backwards compatibility
-                        alias_entityid = cname
-                        if config[CONF_RENAME_ENITITY]:
-                            alias_entityid = find_rename(config[CONF_RENAME], cname)
-
                         sensors += [
                             DockerContainerSensor(
                                 capi,
                                 instance=instance,
-                                prefix=prefix,
                                 cname=cname,
-                                alias_entityid=alias_entityid,
-                                alias_name=find_rename(config[CONF_RENAME], cname),
                                 description=CONTAINER_MONITOR_LIST[variable],
-                                sensor_name_format=config[CONF_SENSORNAME],
+                                config=config,
+                                host_device_id=hass.data[DOMAIN][instance].get(HOST_DEVICE_ID),
                             )
                         ]
 
@@ -205,38 +213,48 @@ class DockerSensor(SensorEntity):
         self,
         api: DockerAPI,
         instance: str,
-        prefix: str,
         description: SensorEntityDescription,
+        config: Mapping[str, Any],
     ):
         """Initialize the sensor."""
 
         self._api = api
         self._instance = instance
-        self._prefix = prefix
 
         self.entity_description = description
 
-        self._entity_id: str = ENTITY_ID_FORMAT.format(
-            slugify(f"{self._prefix}_{self.entity_description.name}")
+        self._attr_unique_id: str = ENTITY_ID_FORMAT.format(
+            slugify(f"{self._instance}_{self.entity_description.name}")
         )
-        self._name = "{name} {sensor}".format(
-            name=self._prefix, sensor=self.entity_description
+        # Same entity_id and name as the YAML-only releases (see legacy_ids)
+        self.entity_id = ENTITY_ID_FORMAT.format(
+            legacy_ids.docker_sensor_object_id(
+                config, instance, self.entity_description.name
+            )
         )
+        self._attr_name = self.entity_description.name
 
         self._state = None
         self._attributes: dict[str, Any] = {}
         self._removed = False
+
+        api_info = self._api.get_info()
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{self._instance}_{self._api.get_url()}")},
+            name=self._instance,
+            model="Docker Host",
+            manufacturer="Docker",
+            sw_version=api_info.get(DOCKER_INFO_VERSION),
+            entry_type=DeviceEntryType.SERVICE,
+        )
+        #identifiers={"os": api_info.get(ATTR_VERSION_OS)},
+        #    model_id=api_info.get(ATTR_VERSION_KERNEL),
 
         _LOGGER.info(
             "[%s]: Initializing Docker sensor '%s'",
             self._instance,
             self.entity_description.name,
         )
-
-    @property
-    def entity_id(self) -> str:
-        """Return the entity id of the sensor."""
-        return self._entity_id
 
     @property
     def native_value(self) -> str | None:
@@ -286,52 +304,53 @@ class DockerSensor(SensorEntity):
 
 
 #################################################################
-class DockerContainerSensor(SensorEntity):
+class DockerContainerSensor(SensorEntity, DockerContainerEntity):
     """Representation of a Docker Sensor."""
 
     def __init__(
         self,
         container: DockerContainerAPI,
         instance: str,
-        prefix: str,
         cname: str,
-        alias_entityid: str,
-        alias_name: str,
         description: SensorEntityDescription,
-        sensor_name_format: str,
+        config: Mapping[str, Any],
         condition_list: list | None = None,
+        host_device_id: str | None = None,
     ):
         """Initialize the sensor."""
+        super().__init__(
+            container,
+            instance,
+            cname,
+            host_device_id,
+            device_name=legacy_ids.alias_name(config, cname),
+        )
 
         self._instance = instance
         self._container = container
-        self._prefix = prefix
         self._cname = cname
         self._condition_list = condition_list
 
         self.entity_description = description
 
         if self.entity_description.key == CONTAINER_INFO_ALLINONE:
-            self._entity_id = ENTITY_ID_FORMAT.format(
-                slugify(f"{self._prefix}_{alias_entityid}")
+            self._attr_unique_id = ENTITY_ID_FORMAT.format(
+                slugify(f"{self._instance}_{self._cname}_allinone")
             )
-            self._attr_name = ENTITY_ID_FORMAT.format(
-                slugify(f"{self._prefix}_{alias_entityid}")
-            )
-            self._attr_name = sensor_name_format.format(
-                name=alias_name, sensorname="", sensor=""
-            )
+            sensor_name = None
         else:
-            self._entity_id = ENTITY_ID_FORMAT.format(
-                slugify(
-                    f"{self._prefix}_{alias_entityid}_{self.entity_description.name}"
-                )
+            self._attr_unique_id = ENTITY_ID_FORMAT.format(
+                slugify(f"{self._instance}_{cname}_{self.entity_description.name}")
             )
-            self._attr_name = sensor_name_format.format(
-                name=alias_name,
-                sensorname=self.entity_description.name,
-                sensor=self.entity_description.name,
+            sensor_name = self.entity_description.name
+
+        # Same entity_id and name as the YAML-only releases (see legacy_ids)
+        self.entity_id = ENTITY_ID_FORMAT.format(
+            legacy_ids.container_sensor_object_id(
+                config, instance, cname, sensor_name
             )
+        )
+        self._attr_name = legacy_ids.container_sensor_name(config, cname, sensor_name)
 
         self._state = None
         self._state_extra = None
@@ -346,10 +365,10 @@ class DockerContainerSensor(SensorEntity):
             self.entity_description.name,
         )
 
-    @property
-    def entity_id(self) -> str:
-        """Return the entity id of the sensor."""
-        return self._entity_id
+    # @property
+    # def entity_id(self) -> str:
+    #     """Return the entity id of the sensor."""
+    #     return self._entity_id
 
     @property
     def icon(self) -> str:

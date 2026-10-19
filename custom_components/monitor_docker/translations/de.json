@@ -3,5 +3,83 @@
         "restart": {
             "name": "Neu starten"
         }
+    },
+    "config": {
+        "step": {
+            "user": {
+                "description": "Verbindung zum Docker-Host einrichten",
+                "data": {
+                    "name": "Name",
+                    "url": "Docker-Host-URL",
+                    "scan_interval": "Aktualisierungsintervall (Sekunden)",
+                    "certpath": "Zertifikatspfad (TLS)",
+                    "retry": "Wiederholungsintervall (Sekunden)"
+                },
+                "data_description": {
+                    "name": "Name dieses Docker-Hosts, auch Präfix der Entitäts-IDs.",
+                    "url": "Leer lassen für den lokalen Socket, z. B. unix:///var/run/docker.sock, oder tcp://host:2376 für einen entfernten Host.",
+                    "certpath": "Nur für TCP-Verbindungen: Ordner mit cert.pem und key.pem, aktiviert TLS.",
+                    "retry": "Wartezeit bis zum erneuten Verbinden nach einem Fehler."
+                }
+            },
+            "reconfigure": {
+                "description": "Einstellungen des Docker-Daemons ändern",
+                "menu_options": {
+                    "containers": "Zu überwachende Container",
+                    "conditions": "Zu überwachende Werte"
+                }
+            },
+            "containers": {
+                "description": "Container zur Überwachung auswählen",
+                "data": {
+                    "containers": "Zu überwachende Container",
+                    "containers_exclude": "Auszuschließende Container"
+                },
+                "data_description": {
+                    "containers": "Leer lassen, um alle Container zu überwachen, auch neue.",
+                    "containers_exclude": "Wird genutzt, wenn alle Container überwacht werden."
+                }
+            },
+            "containers_rename": {
+                "description": "Anzeigenamen für jeden Container wählen",
+                "data": {
+                    "rename_entity": "Auch Entitäts-IDs umbenennen"
+                }
+            },
+            "conditions": {
+                "description": "Auswählen, was überwacht wird",
+                "data": {
+                    "monitored_docker_conditions": "Werte des Docker-Daemons",
+                    "monitored_container_conditions": "Werte je Container",
+                    "switchenabled": "Schalter-Entitäten für Container",
+                    "buttonenabled": "Neustart-Tasten für Container",
+                    "memorychange": "Speicher-Spitzenfilter (%)",
+                    "precision_cpu": "Nachkommastellen CPU-Auslastung",
+                    "precision_memory_mb": "Nachkommastellen Speicher in MB",
+                    "precision_memory_percentage": "Nachkommastellen Speicher in Prozent",
+                    "precision_network_kb": "Nachkommastellen Netzwerk-Bandbreite in kB",
+                    "precision_network_mb": "Nachkommastellen Netzwerk-Nutzung in MB"
+                },
+                "data_description": {
+                    "memorychange": "Ändert sich der Speicher zwischen zwei Messungen um mindestens so viel Prozent, wird der Wert einmal zurückgehalten, um kurze Spitzen zu filtern. 100 = aus."
+                }
+            }
+        },
+        "error": {
+            "name_exists": "Der Name existiert bereits",
+            "invalid_connection": "Keine Verbindung zu Docker möglich"
+        },
+        "abort": {
+            "already_configured": "Dieser Docker-Daemon ist bereits eingerichtet",
+            "reauth_successful": "Erneute Anmeldung erfolgreich",
+            "reconfigure_successful": "Neukonfiguration erfolgreich",
+            "reconfigure_failed": "Der zu ändernde Eintrag wurde nicht gefunden"
+        }
+    },
+    "issues": {
+        "remove_configuration_yaml": {
+            "title": "{integration_title} wurde aus configuration.yaml übernommen",
+            "description": "Die Einstellungen von {integration_title} wurden aus configuration.yaml in einen Integrationseintrag übernommen, inklusive prefix, rename, rename_entity und der Namensformate, damit die Entitäts-IDs gleich bleiben.\n\nIntegration prüfen, dann den Abschnitt {domain} aus configuration.yaml entfernen und Home Assistant neu starten, um diesen Hinweis zu entfernen. Container und Werte lassen sich über Neu konfigurieren ändern, Namen pro Entität oder Gerät in der Oberfläche."
+        }
     }
 }

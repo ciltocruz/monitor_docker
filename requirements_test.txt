@@ -1,0 +1,4 @@
+# Same versions the tests are run with locally (Home Assistant 2026.2.3)
+pytest-homeassistant-custom-component==0.13.316
+aiodocker==0.25.0
+python-dateutil==2.9.0.post0

@@ -8,6 +8,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, UnitOfDataRate, UnitOfInformation
 
 DOMAIN = "monitor_docker"
+HOST_DEVICE_ID = "host_device_id"
 API = "api"
 CONFIG = "config"
 CONTAINER = "container"
@@ -16,6 +17,8 @@ CONF_CERTPATH = "certpath"
 CONF_CONTAINERS = "containers"
 CONF_CONTAINERS_EXCLUDE = "containers_exclude"
 CONF_MEMORYCHANGE = "memorychange"
+CONF_MONITORED_CONTAINER_CONDITIONS = "monitored_container_conditions"
+CONF_MONITORED_DOCKER_CONDITIONS = "monitored_docker_conditions"
 CONF_PRECISION_CPU = "precision_cpu"
 CONF_PRECISION_DISK_MB = "precision_disk_mb"
 CONF_PRECISION_MEMORY_MB = "precision_memory_mb"
@@ -35,11 +38,15 @@ CONF_VERSION = "version"
 
 DEFAULT_NAME = "Docker"
 DEFAULT_RETRY = 60
+DEFAULT_SCAN_INTERVAL = 10
 DEFAULT_SENSORNAME = "{name} {sensor}"
 DEFAULT_SWITCHNAME = "{name}"
 DEFAULT_BUTTONNAME = "{name} Restart"
 
 COMPONENTS = ["sensor", "switch", "button"]
+
+# Dispatcher signal (format with the instance name): a container to add
+SIGNAL_CONTAINER_ADDED = "monitor_docker_{}_container_added"
 
 SERVICE_RESTART = "restart"
 SERVICE_RELOAD = "reload"
@@ -57,6 +64,21 @@ DOCKER_STATS_1CPU_PERCENTAGE = "containers_1cpu_percentage"
 DOCKER_STATS_MEMORY = "containers_memory"
 DOCKER_STATS_MEMORY_PERCENTAGE = "containers_memory_percentage"
 
+# Host sensors summed over every running container, selected or not
+DOCKER_AGGREGATE_LIST = [
+    DOCKER_STATS_CPU_PERCENTAGE,
+    DOCKER_STATS_1CPU_PERCENTAGE,
+    DOCKER_STATS_MEMORY,
+    DOCKER_STATS_MEMORY_PERCENTAGE,
+]
+
+DOCKER_PRE_SELECTION = [
+    DOCKER_INFO_VERSION,
+    DOCKER_INFO_CONTAINER_RUNNING,
+    DOCKER_STATS_CPU_PERCENTAGE,
+    DOCKER_STATS_MEMORY,
+]
+
 CONTAINER_INFO_ALLINONE = "allinone"
 CONTAINER_INFO_STATE = "state"
 CONTAINER_INFO_HEALTH = "health"
@@ -73,6 +95,14 @@ CONTAINER_STATS_NETWORK_SPEED_UP = "network_speed_up"
 CONTAINER_STATS_NETWORK_SPEED_DOWN = "network_speed_down"
 CONTAINER_STATS_NETWORK_TOTAL_UP = "network_total_up"
 CONTAINER_STATS_NETWORK_TOTAL_DOWN = "network_total_down"
+
+CONTAINER_PRE_SELECTION = [
+    CONTAINER_INFO_STATUS,
+    CONTAINER_INFO_UPTIME,
+    CONTAINER_INFO_IMAGE,
+    CONTAINER_STATS_CPU_PERCENTAGE,
+    CONTAINER_STATS_MEMORY,
+]
 
 DOCKER_MONITOR_LIST = {
     DOCKER_INFO_VERSION: SensorEntityDescription(

@@ -35,6 +35,15 @@ This is a **custom repository** install:
 
 Manual install: copy `custom_components/monitor_docker/` (from a [release](https://github.com/ciltocruz/monitor_docker/releases) zip) into your `custom_components` directory and restart Home Assistant.
 
+## Setup via the UI (v2.0+)
+
+Since v2.0.0 this integration is **configurable from the Home Assistant UI** (config flow, upstream issue #173):
+
+- Add it from *Settings → Devices & Services → Add Integration → Monitor Docker*.
+- The wizard connects to the Docker host, lets you select containers and conditions, and a **reconfigure** dialog is available later from the integration card.
+- An existing `monitor_docker: ...` section in `configuration.yaml` is **imported automatically** into a config entry (you can remove it from YAML afterwards; HA raises a repair issue as a reminder).
+- A lost Docker connection raises a **re-auth** dialog instead of a silent failure.
+
 ---
 
 ## About (upstream)
