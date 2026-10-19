@@ -1,100 +1,102 @@
 {
- "services": {
-  "reload": {
-   "description": "Recarga todas las entidades de monitor_docker.",
-   "name": "Recargar"
+  "services": {
+    "reload": {
+      "description": "Recarga todas las entidades de monitor_docker.",
+      "name": "Recargar"
+    },
+    "restart": {
+      "description": "Reinicia un contenedor; el contenedor debe estar configurado en monitor_docker.",
+      "fields": {
+        "name": {
+          "description": "Nombre del contenedor.",
+          "name": "Nombre"
+        },
+        "server": {
+          "description": "Nombre del servidor, tal como se indic\u00f3 en la configuraci\u00f3n. Solo es necesario si tienes m\u00e1s de un host Docker configurado.",
+          "name": "Servidor"
+        }
+      },
+      "name": "Reiniciar"
+    }
   },
-  "restart": {
-   "description": "Reinicia un contenedor; el contenedor debe estar configurado en monitor_docker.",
-   "fields": {
-    "name": {
-     "description": "Nombre del contenedor.",
-     "name": "Nombre"
+  "config": {
+    "step": {
+      "user": {
+        "description": "Configura una conexi\u00f3n con el host Docker",
+        "data": {
+          "name": "Nombre",
+          "url": "URL del host Docker",
+          "scan_interval": "Intervalo de actualizaci\u00f3n (segundos)",
+          "certpath": "Ruta de certificados (TLS)",
+          "retry": "Intervalo de reintento (segundos)"
+        },
+        "data_description": {
+          "name": "Nombre de este host Docker; tambi\u00e9n se usa como prefijo del entity ID.",
+          "url": "D\u00e9jalo vac\u00edo para usar el socket local, p. ej. unix:///var/run/docker.sock, o tcp://host:2376 para un host remoto.",
+          "certpath": "Solo para conexiones TCP: carpeta con cert.pem y key.pem, activa TLS.",
+          "retry": "Tiempo de espera antes de reconectar tras un error."
+        }
+      },
+      "reconfigure": {
+        "description": "Reconfigurar los ajustes del demonio Docker",
+        "menu_options": {
+          "containers": "Contenedores a monitorizar",
+          "conditions": "Condiciones a monitorizar"
+        }
+      },
+      "containers": {
+        "description": "Selecciona qu\u00e9 contenedores monitorizar",
+        "data": {
+          "containers": "Contenedores a monitorizar",
+          "containers_exclude": "Contenedores a excluir",
+          "containers_mode": "Monitorizar contenedores por"
+        },
+        "data_description": {
+          "containers": "D\u00e9jalo vac\u00edo para monitorizar todos los contenedores, incluidos los nuevos.",
+          "containers_exclude": "Se usa en el modo 'todos excepto': se monitoriza todo menos estos contenedores.",
+          "containers_mode": "Elige monitorizar solo los contenedores seleccionados, o todos ellos excepto los excluidos. El modo exclusi\u00f3n incluye autom\u00e1ticamente los contenedores que se creen m\u00e1s adelante."
+        }
+      },
+      "containers_rename": {
+        "description": "Elige un nombre visible para cada contenedor",
+        "data": {
+          "rename_entity": "Renombrar tambi\u00e9n los entity IDs"
+        }
+      },
+      "conditions": {
+        "description": "Selecciona qu\u00e9 monitorizar",
+        "data": {
+          "monitored_docker_conditions": "Condiciones del controlador a monitorizar",
+          "monitored_container_conditions": "Condiciones de cada contenedor a monitorizar",
+          "switchenabled": "Activar/Desactivar la entidad switch de los contenedores",
+          "buttonenabled": "Activar/Desactivar la entidad bot\u00f3n de los contenedores",
+          "memorychange": "Filtro de picos de memoria (%)",
+          "precision_cpu": "Precisi\u00f3n del porcentaje de uso de CPU",
+          "precision_memory_mb": "Precisi\u00f3n del uso de memoria en MB",
+          "precision_memory_percentage": "Precisi\u00f3n del porcentaje de uso de memoria",
+          "precision_network_kb": "Precisi\u00f3n del ancho de banda de red en kB",
+          "precision_network_mb": "Precisi\u00f3n del uso de red en MB"
+        },
+        "data_description": {
+          "memorychange": "Un cambio de memoria de al menos este porcentaje entre dos lecturas se retiene una vez, para filtrar picos breves. 100 = desactivado."
+        }
+      }
     },
-    "server": {
-     "description": "Nombre del servidor, tal como se indicó en la configuración. Solo es necesario si tienes más de un host Docker configurado.",
-     "name": "Servidor"
-    }
-   },
-   "name": "Reiniciar"
-  }
- },
- "config": {
-  "step": {
-   "user": {
-    "description": "Configura una conexión con el host Docker",
-    "data": {
-     "name": "Nombre",
-     "url": "URL del host Docker",
-     "scan_interval": "Intervalo de actualización (segundos)",
-     "certpath": "Ruta de certificados (TLS)",
-     "retry": "Intervalo de reintento (segundos)"
+    "error": {
+      "name_exists": "El nombre ya existe",
+      "invalid_connection": "No se pudo conectar a Docker"
     },
-    "data_description": {
-     "name": "Nombre de este host Docker; también se usa como prefijo del entity ID.",
-     "url": "Déjalo vacío para usar el socket local, p. ej. unix:///var/run/docker.sock, o tcp://host:2376 para un host remoto.",
-     "certpath": "Solo para conexiones TCP: carpeta con cert.pem y key.pem, activa TLS.",
-     "retry": "Tiempo de espera antes de reconectar tras un error."
+    "abort": {
+      "reauth_successful": "Reautorizaci\u00f3n correcta",
+      "reconfigure_successful": "Reconfiguraci\u00f3n correcta",
+      "already_configured": "Este demonio Docker ya est\u00e1 configurado",
+      "reconfigure_failed": "No se encontr\u00f3 la entrada a reconfigurar"
     }
-   },
-   "reconfigure": {
-    "description": "Reconfigurar los ajustes del demonio Docker",
-    "menu_options": {
-     "containers": "Contenedores a monitorizar",
-     "conditions": "Condiciones a monitorizar"
-    }
-   },
-   "containers": {
-    "description": "Selecciona qué contenedores monitorizar",
-    "data": {
-     "containers": "Contenedores a monitorizar",
-     "containers_exclude": "Contenedores a excluir"
-    },
-    "data_description": {
-     "containers": "Déjalo vacío para monitorizar todos los contenedores, incluidos los nuevos.",
-     "containers_exclude": "Se usa cuando se monitorizan todos los contenedores."
-    }
-   },
-   "containers_rename": {
-    "description": "Elige un nombre visible para cada contenedor",
-    "data": {
-     "rename_entity": "Renombrar también los entity IDs"
-    }
-   },
-   "conditions": {
-    "description": "Selecciona qué monitorizar",
-    "data": {
-     "monitored_docker_conditions": "Condiciones del controlador a monitorizar",
-     "monitored_container_conditions": "Condiciones de cada contenedor a monitorizar",
-     "switchenabled": "Activar/Desactivar la entidad switch de los contenedores",
-     "buttonenabled": "Activar/Desactivar la entidad botón de los contenedores",
-     "memorychange": "Filtro de picos de memoria (%)",
-     "precision_cpu": "Precisión del porcentaje de uso de CPU",
-     "precision_memory_mb": "Precisión del uso de memoria en MB",
-     "precision_memory_percentage": "Precisión del porcentaje de uso de memoria",
-     "precision_network_kb": "Precisión del ancho de banda de red en kB",
-     "precision_network_mb": "Precisión del uso de red en MB"
-    },
-    "data_description": {
-     "memorychange": "Un cambio de memoria de al menos este porcentaje entre dos lecturas se retiene una vez, para filtrar picos breves. 100 = desactivado."
-    }
-   }
   },
-  "error": {
-   "name_exists": "El nombre ya existe",
-   "invalid_connection": "No se pudo conectar a Docker"
-  },
-  "abort": {
-   "reauth_successful": "Reautorización correcta",
-   "reconfigure_successful": "Reconfiguración correcta",
-   "already_configured": "Este demonio Docker ya está configurado",
-   "reconfigure_failed": "No se encontró la entrada a reconfigurar"
+  "issues": {
+    "remove_configuration_yaml": {
+      "title": "{integration_title} se import\u00f3 desde configuration.yaml",
+      "description": "Los ajustes de {integration_title} se importaron de configuration.yaml a una entrada de configuraci\u00f3n, incluyendo prefijo, renombrados, rename_entity y los formatos de nombre, para que tus entity IDs sigan igual.\n\nRevisa la integraci\u00f3n y despu\u00e9s elimina la secci\u00f3n {domain} de configuration.yaml y reinicia Home Assistant para quitar este aviso. Contenedores y condiciones pueden cambiarse con Reconfigurar; los nombres, por entidad o dispositivo, desde la interfaz."
+    }
   }
- },
- "issues": {
-  "remove_configuration_yaml": {
-   "title": "{integration_title} se importó desde configuration.yaml",
-   "description": "Los ajustes de {integration_title} se importaron de configuration.yaml a una entrada de configuración, incluyendo prefijo, renombrados, rename_entity y los formatos de nombre, para que tus entity IDs sigan igual.\n\nRevisa la integración y después elimina la sección {domain} de configuration.yaml y reinicia Home Assistant para quitar este aviso. Contenedores y condiciones pueden cambiarse con Reconfigurar; los nombres, por entidad o dispositivo, desde la interfaz."
-  }
- }
 }

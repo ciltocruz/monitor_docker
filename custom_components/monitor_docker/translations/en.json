@@ -1,100 +1,102 @@
 {
-    "services": {
-        "reload": {
-            "description": "Reloads all monitor_docker entities.",
-            "name": "Reload"
-        },
-        "restart": {
-            "description": "Restart a container, the container must be configured in monitor_docker.",
-            "fields": {
-                "name": {
-                    "description": "Name of the container.",
-                    "name": "Name"
-                },
-                "server": {
-                    "description": "Name of the server, as given in config. Only required if you have more than one docker host config.",
-                    "name": "Server"
-                }
-            },
-            "name": "Restart"
-        }
+  "services": {
+    "reload": {
+      "description": "Reloads all monitor_docker entities.",
+      "name": "Reload"
     },
-    "config": {
-        "step": {
-            "user": {
-                "description": "Setup a connection to docker host",
-                "data": {
-                    "name": "Name",
-                    "url": "Docker host URL",
-                    "scan_interval": "Update interval (seconds)",
-                    "certpath": "Certificate path (TLS)",
-                    "retry": "Retry interval (seconds)"
-                },
-                "data_description": {
-                    "name": "Name of this Docker host, also used as entity ID prefix.",
-                    "url": "Leave empty to use the local socket, e.g. unix:///var/run/docker.sock, or tcp://host:2376 for a remote host.",
-                    "certpath": "Only for TCP connections: folder with cert.pem and key.pem, enables TLS.",
-                    "retry": "Wait time before reconnecting after an error."
-                }
-            },
-            "reconfigure": {
-                "description": "Reconfigure settings of Docker daemon",
-                "menu_options": {
-                    "containers": "Containers to monitor",
-                    "conditions": "Conditions to monitor"
-                }
-            },
-            "containers": {
-                "description": "Select which containers to monitor",
-                "data": {
-                    "containers": "Containers to monitor",
-                    "containers_exclude": "Containers to exclude"
-                },
-                "data_description": {
-                    "containers": "Leave empty to monitor all containers, including new ones.",
-                    "containers_exclude": "Used when all containers are monitored."
-                }
-            },
-            "containers_rename": {
-                "description": "Select a display name for each container",
-                "data": {
-                    "rename_entity": "Rename entity IDs too"
-                }
-            },
-            "conditions": {
-                "description": "Select what to monitor",
-                "data": {
-                    "monitored_docker_conditions": "Conditions of the controller to be monitored",
-                    "monitored_container_conditions": "Conditions of each container to be monitored",
-                    "switchenabled": "Enable/Disable the switch entity for containers",
-                    "buttonenabled": "Enable/Disable the button entity for containers",
-                    "memorychange": "Memory spike filter (%)",
-                    "precision_cpu": "Precision of CPU usage percentage",
-                    "precision_memory_mb": "Precision of memory usage in MB",
-                    "precision_memory_percentage": "Precision of memory usage in percentage",
-                    "precision_network_kb": "Precision of network bandwidth in kB",
-                    "precision_network_mb": "Precision of network usage in MB"
-                },
-                "data_description": {
-                    "memorychange": "A memory change of at least this many percent between two readings is held back once, to filter short spikes. 100 = off."
-                }
-            }
+    "restart": {
+      "description": "Restart a container, the container must be configured in monitor_docker.",
+      "fields": {
+        "name": {
+          "description": "Name of the container.",
+          "name": "Name"
         },
-        "error": {
-            "name_exists": "Name already exists",
-            "invalid_connection": "Could not connect to Docker"
-        },
-        "abort": {
-            "reauth_successful": "Reauthorization successful",
-            "reconfigure_successful": "Reconfiguration successful",
-            "already_configured": "This Docker daemon is already configured",
-            "reconfigure_failed": "The entry to reconfigure was not found"
+        "server": {
+          "description": "Name of the server, as given in config. Only required if you have more than one docker host config.",
+          "name": "Server"
         }
-    },
-    "issues": {
-        "remove_configuration_yaml": {
-            "title": "{integration_title} was imported from configuration.yaml",
-            "description": "The settings of {integration_title} were imported from configuration.yaml into a config entry, including prefix, rename, rename_entity and the name formats, so your entity IDs stay the same.\n\nCheck the integration, then remove the {domain} section from configuration.yaml and restart Home Assistant to remove this message. Containers and conditions can be changed with Reconfigure, names per entity or device in the UI."
-        }
+      },
+      "name": "Restart"
     }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "description": "Setup a connection to docker host",
+        "data": {
+          "name": "Name",
+          "url": "Docker host URL",
+          "scan_interval": "Update interval (seconds)",
+          "certpath": "Certificate path (TLS)",
+          "retry": "Retry interval (seconds)"
+        },
+        "data_description": {
+          "name": "Name of this Docker host, also used as entity ID prefix.",
+          "url": "Leave empty to use the local socket, e.g. unix:///var/run/docker.sock, or tcp://host:2376 for a remote host.",
+          "certpath": "Only for TCP connections: folder with cert.pem and key.pem, enables TLS.",
+          "retry": "Wait time before reconnecting after an error."
+        }
+      },
+      "reconfigure": {
+        "description": "Reconfigure settings of Docker daemon",
+        "menu_options": {
+          "containers": "Containers to monitor",
+          "conditions": "Conditions to monitor"
+        }
+      },
+      "containers": {
+        "description": "Select which containers to monitor",
+        "data": {
+          "containers": "Containers to monitor",
+          "containers_exclude": "Containers to exclude",
+          "containers_mode": "Monitor containers by"
+        },
+        "data_description": {
+          "containers": "Leave empty to monitor all containers, including new ones.",
+          "containers_exclude": "Used in the 'all except' mode: everything except these containers is monitored.",
+          "containers_mode": "Choose to monitor only the selected containers, or all of them except the excluded ones. Excluded mode automatically includes containers created later."
+        }
+      },
+      "containers_rename": {
+        "description": "Select a display name for each container",
+        "data": {
+          "rename_entity": "Rename entity IDs too"
+        }
+      },
+      "conditions": {
+        "description": "Select what to monitor",
+        "data": {
+          "monitored_docker_conditions": "Conditions of the controller to be monitored",
+          "monitored_container_conditions": "Conditions of each container to be monitored",
+          "switchenabled": "Enable/Disable the switch entity for containers",
+          "buttonenabled": "Enable/Disable the button entity for containers",
+          "memorychange": "Memory spike filter (%)",
+          "precision_cpu": "Precision of CPU usage percentage",
+          "precision_memory_mb": "Precision of memory usage in MB",
+          "precision_memory_percentage": "Precision of memory usage in percentage",
+          "precision_network_kb": "Precision of network bandwidth in kB",
+          "precision_network_mb": "Precision of network usage in MB"
+        },
+        "data_description": {
+          "memorychange": "A memory change of at least this many percent between two readings is held back once, to filter short spikes. 100 = off."
+        }
+      }
+    },
+    "error": {
+      "name_exists": "Name already exists",
+      "invalid_connection": "Could not connect to Docker"
+    },
+    "abort": {
+      "reauth_successful": "Reauthorization successful",
+      "reconfigure_successful": "Reconfiguration successful",
+      "already_configured": "This Docker daemon is already configured",
+      "reconfigure_failed": "The entry to reconfigure was not found"
+    }
+  },
+  "issues": {
+    "remove_configuration_yaml": {
+      "title": "{integration_title} was imported from configuration.yaml",
+      "description": "The settings of {integration_title} were imported from configuration.yaml into a config entry, including prefix, rename, rename_entity and the name formats, so your entity IDs stay the same.\n\nCheck the integration, then remove the {domain} section from configuration.yaml and restart Home Assistant to remove this message. Containers and conditions can be changed with Reconfigure, names per entity or device in the UI."
+    }
+  }
 }

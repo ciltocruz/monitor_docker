@@ -57,6 +57,12 @@ from .helpers import DockerAPI
 _LOGGER = logging.getLogger(__name__)
 
 
+# Container selection modes for the containers step (not stored in entry data)
+FIELD_CONTAINERS_MODE = "containers_mode"
+FIELD_CONTAINERS_MODE_EXCLUSION = CONF_CONTAINERS_EXCLUDE
+MODE_SELECTED = "selected"
+MODE_ALL_EXCEPT = "all_except"
+
 DEFAULT_ENTRY_DATA: dict[str, Any] = {
     # User
     CONF_NAME: DEFAULT_NAME,
@@ -94,6 +100,7 @@ class DockerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     options = None
     _docker_api = None
+    _containers_mode: str | None = None
     # True when this flow opened its own test connection (closed when done)
     _owns_docker_api = False
     _config_entry: ConfigEntry | None = None
@@ -200,33 +207,109 @@ class DockerConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_containers(
         self, user_input: Mapping[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle user step."""
+        """Select the containers to monitor, by inclusion or exclusion.
+
+        Two steps within one step id:
+        1. ask the selection mode (only selected / all except excluded),
+        2. show the matching multi-select and store it.
+
+        The entry data keeps the backend contract:
+        - inclusion: containers=[...] (empty list means every container)
+        - exclusion: containers=[] and containers_exclude=[...]
+        """
         errors = {}
 
         if user_input is not None:
-            self.data.update(user_input)
-            if self.source == SOURCE_RECONFIGURE:
-                # self.async_set_unique_id(self.data[CONF_NAME])
-                # self._abort_if_unique_id_mismatch()
-                return self.async_update_reload_and_abort(
-                    self._config_entry,
-                    data=self.data,
-                )
-            return await self.async_step_conditions()
+            # Phase 1 result: the selection mode
+            if FIELD_CONTAINERS_MODE in user_input:
+                self._containers_mode = user_input[FIELD_CONTAINERS_MODE]
+            # Phase 2 result, exclusion mode (all except excluded)
+            elif FIELD_CONTAINERS_MODE_EXCLUSION in user_input:
+                self.data[CONF_CONTAINERS] = []
+                self.data[CONF_CONTAINERS_EXCLUDE] = user_input[
+                    FIELD_CONTAINERS_MODE_EXCLUSION
+                ]
+                return await self._containers_done()
+            # Phase 2 result, inclusion mode (only the selected ones)
+            elif CONF_CONTAINERS in user_input:
+                self.data[CONF_CONTAINERS] = user_input[CONF_CONTAINERS]
+                return await self._containers_done()
 
-        container_schema = vol.Schema(
+        lang = (self.hass.config.language or "en")[:2]
+
+        if self._containers_mode is not None:
+            if self._containers_mode == MODE_SELECTED:
+                container_schema = vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_CONTAINERS, default=self.data[CONF_CONTAINERS]
+                        ): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                # Every container on the host, plus selected ones
+                                # that do not exist right now
+                                options=sorted(
+                                    set(self._docker_api.list_all_containers())
+                                    | set(self.data[CONF_CONTAINERS])
+                                ),
+                                multiple=True,
+                            ),
+                        )
+                    }
+                )
+            else:
+                container_schema = vol.Schema(
+                    {
+                        vol.Optional(
+                            FIELD_CONTAINERS_MODE_EXCLUSION,
+                            default=self.data.get(CONF_CONTAINERS_EXCLUDE) or [],
+                        ): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=sorted(
+                                    set(self._docker_api.list_all_containers())
+                                    | set(self.data.get(CONF_CONTAINERS_EXCLUDE) or [])
+                                ),
+                                multiple=True,
+                            ),
+                        )
+                    }
+                )
+
+            return self.async_show_form(
+                step_id="containers",
+                data_schema=container_schema,
+                errors=errors,
+            )
+
+        mode_labels = {
+            MODE_SELECTED: {
+                "es": "Solo los contenedores seleccionados",
+            }.get(lang, "Only the selected containers"),
+            MODE_ALL_EXCEPT: {
+                "es": "Todos excepto los excluidos",
+            }.get(lang, "All containers except the excluded ones"),
+        }
+
+        # Derived default: keep what the entry does today
+        mode_default = MODE_SELECTED
+        if (
+            not self.data.get(CONF_CONTAINERS)
+            and (self.data.get(CONF_CONTAINERS_EXCLUDE) or [])
+        ):
+            mode_default = MODE_ALL_EXCEPT
+
+        mode_schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_CONTAINERS, default=self.data[CONF_CONTAINERS]
+                vol.Required(
+                    FIELD_CONTAINERS_MODE, default=mode_default
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        # Every container on the host, plus selected ones
-                        # that do not exist right now
-                        options=sorted(
-                            set(self._docker_api.list_all_containers())
-                            | set(self.data[CONF_CONTAINERS])
-                        ),
-                        multiple=True,
+                        options=[
+                            {"value": MODE_SELECTED, "label": mode_labels[MODE_SELECTED]},
+                            {
+                                "value": MODE_ALL_EXCEPT,
+                                "label": mode_labels[MODE_ALL_EXCEPT],
+                            },
+                        ]
                     ),
                 )
             }
@@ -234,9 +317,20 @@ class DockerConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="containers",
-            data_schema=container_schema,
+            data_schema=mode_schema,
             errors=errors,
         )
+
+    async def _containers_done(self) -> ConfigFlowResult:
+        """Finish the containers step: save on reconfigure, continue otherwise."""
+        if self.source == SOURCE_RECONFIGURE:
+            # self.async_set_unique_id(self.data[CONF_NAME])
+            # self._abort_if_unique_id_mismatch()
+            return self.async_update_reload_and_abort(
+                self._config_entry,
+                data=self.data,
+            )
+        return await self.async_step_conditions()
 
     async def async_step_conditions(
         self, user_input: Mapping[str, Any] | None = None
