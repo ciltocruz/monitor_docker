@@ -269,6 +269,7 @@ class DockerAPI:
                 self._config,
                 self._api,
                 cname,
+                parent=self,
             )
             await self._containers[cname].init()
 
@@ -615,16 +616,39 @@ class DockerAPI:
             )
 
     #############################################################
+    async def on_container_gone(self, cname: str) -> None:
+        """Drop the monitor of a container that no longer exists.
+
+        Called from a container monitor when the Docker API keeps answering
+        404 (e.g. the container was recreated with a new id and the destroy
+        event was missed). Removing the monitor here allows a later create
+        event to re-add it with a fresh handle.
+        """
+        if cname in self._containers:
+            _LOGGER.info(
+                "[%s] %s: Container does not exist anymore, removing monitor",
+                self._instance,
+                cname,
+            )
+            asyncio.create_task(self._container_remove(cname))
+
     async def _container_add(self, cname: str) -> None:
         if cname in self._containers:
-            _LOGGER.error("[%s] %s: Container already monitored", self._instance, cname)
-            return
+            # The container was recreated (new id) while we still hold the
+            # old monitor. Replace the stale monitor instead of bailing out
+            # with 'Container already monitored'.
+            _LOGGER.warning(
+                "[%s] %s: Container already monitored, replacing stale monitor",
+                self._instance,
+                cname,
+            )
+            await self._container_remove(cname)
 
         _LOGGER.debug("[%s] %s: Starting Container Monitor", self._instance, cname)
 
         # Create our Docker Container API
         self._containers[cname] = DockerContainerAPI(
-            self._config, self._api, cname, atInit=False
+            self._config, self._api, cname, atInit=False, parent=self
         )
 
         # We should wait until container is attached
@@ -889,9 +913,12 @@ class DockerContainerAPI:
         api: aiodocker.Docker,
         cname: str,
         atInit=True,
+        parent: "DockerAPI | None" = None,
     ):
         self._config = config
         self._api = api
+        self._parent: "DockerAPI | None" = parent
+        self._gone = 0
         self._instance: str = config[CONF_NAME]
         self._memChange: int = config[CONF_MEMORYCHANGE]
         self._name = cname
@@ -967,6 +994,55 @@ class DockerContainerAPI:
         return True
 
     #############################################################
+    async def _handle_container_gone(self, error: str) -> None:
+        """Handle a 404 from the Docker API for the monitored container.
+
+        The monitor keeps a handle for the container id it was created with.
+        When the container is recreated (Watchtower, compose up -d, ...
+        ) that id no longer exists while the new container has a new id but
+        the same name. Try to re-attach to a container with the same name; if
+        there is none, ask the DockerAPI instance to drop this monitor so a
+        later create event can add it back.
+        """
+        try:
+            self._container = await self._api.containers.get(self._name)
+        except aiodocker.exceptions.DockerError:
+            self._gone += 1
+            if self._gone >= 2 and self._parent is not None:
+                _LOGGER.info(
+                    "[%s] %s: Container not available anymore (3a) (%s). "
+                    "Container does not exist anymore, dropping monitor",
+                    self._instance,
+                    self._name,
+                    error,
+                )
+                await self._parent.on_container_gone(self._name)
+            else:
+                _LOGGER.error(
+                    "[%s] %s: Container not available anymore (3a) (%s). Retry in %d seconds",
+                    self._instance,
+                    self._name,
+                    error,
+                    self._retry_interval,
+                )
+        except Exception as err:
+            self._gone = 0
+            _LOGGER.error(
+                "[%s] %s: Container not available anymore (3b) (%s). Retry in %d seconds",
+                self._instance,
+                self._name,
+                str(err),
+                self._retry_interval,
+            )
+        else:
+            self._gone = 0
+            _LOGGER.info(
+                "[%s] %s: Re-attached to recreated container",
+                self._instance,
+                self._name,
+            )
+
+    #############################################################
     def request_refresh(self) -> None:
         """Wake this container's loop to fetch immediately."""
         self._refresh_event.set()
@@ -1017,13 +1093,16 @@ class DockerContainerAPI:
                 )
                 break
             except aiodocker.exceptions.DockerError as err:
-                _LOGGER.error(
-                    "[%s] %s: Container not available anymore (3a) (%s). Retry in %d seconds",
-                    self._instance,
-                    self._name,
-                    str(err),
-                    self._retry_interval,
-                )
+                if err.status == 404:
+                    await self._handle_container_gone(str(err))
+                else:
+                    _LOGGER.error(
+                        "[%s] %s: Container not available anymore (3a) (%s). Retry in %d seconds",
+                        self._instance,
+                        self._name,
+                        str(err),
+                        self._retry_interval,
+                    )
             except asyncio.TimeoutError as err:
                 _LOGGER.error(
                     "[%s] %s: Container not available anymore (3d) TimeoutError. Retry in %d seconds",
