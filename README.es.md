@@ -1,20 +1,32 @@
 [🇬🇧 English](README.md) | **🇪🇸 Español**
 
-# Monitor Docker para Home Assistant — fix de contenedores recreados (fork)
+# Monitor Docker para Home Assistant — fork mantenido
 
 <div align="center">
 
-**Un fork mantenido de [ualex73/monitor_docker](https://github.com/ualex73/monitor_docker)** con el arreglo de la recreación de contenedores:
+**Un fork mantenido de [ualex73/monitor_docker](https://github.com/ualex73/monitor_docker)** que mantiene vivo el original y añade lo que le faltaba:
 
-**Watchtower / `docker compose up -d` / podman ya no rompen tus monitores.**
+**Configuración por UI · monitores auto-reparables · compatibilidad moderna con HA · bilingüe (ES/EN).**
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![upstream](https://img.shields.io/badge/fork%20of-ualex73%2Fmonitor__docker-blue.svg?style=for-the-badge)](https://github.com/ualex73/monitor_docker)
-[![fixes](https://img.shields.io/badge/fixes-upstream%20%23188-green.svg?style=for-the-badge)](https://github.com/ualex73/monitor_docker/issues/188)
+[![release](https://img.shields.io/github/v/release/ciltocruz/monitor_docker.svg?style=for-the-badge)](https://github.com/ciltocruz/monitor_docker/releases)
 
 </div>
 
-## El problema que arregla este fork (issue #183 de upstream → #188)
+## Qué añade este fork
+
+- 🖥️ **Configuración 100% por interfaz** — añadir, reconfigurar y re-autenticar la integración desde *Configuración → Dispositivos y servicios*. Sin YAML (issue upstream #173).
+- 🩹 **Monitores auto-reparables** — los contenedores recreados por Watchtower, `docker compose up -d` o podman se re-adjuntan solos; adiós a los bucles 404, los monitores zombi y los reinicios (issue upstream #188).
+- 📦 **Migración de YAML sin dolor** — una configuración existente en `configuration.yaml` se importa sola a una entrada de configuración, conservando tus **entity IDs y nombres** para que dashboards y automatizaciones sigan funcionando.
+- 🧩 **Agrupación por dispositivos** — un dispositivo por host Docker y uno por contenedor, en vez de una lista plana de entidades sueltas.
+- 🎛️ **Switches y botones gestionables desde la UI** — unique IDs estables: renombrar, ocultar o deshabilitar desde la interfaz de HA (upstream #212).
+- ⚡ **Refresco a demanda** — los eventos de arranque/parada/reinicio/salud actualizan las entidades al instante, no en el siguiente intervalo.
+- 🐳 **Compatibilidad con Home Assistant 2026.10** — contenedores tardíos vía dispatcher, monitorización solo de los contenedores seleccionados, obtención de stats one-shot y fix de la carrera renombrado+create.
+- 🇪🇸 **Interfaz en español** — el config flow traducido al completo; el inglés, intacto.
+- ✅ **Tests y CI** — suite de pytest más workflows de validación hassfest/HACS.
+
+## El fix de contenedores recreados en detalle (issue upstream #188)
 
 Cuando un contenedor se **recrea** — actualización de Watchtower, `docker compose up -d`, reinicio en podman, ... — la integración original seguía monitorizando la **ID antigua del contenedor** para siempre:
 
