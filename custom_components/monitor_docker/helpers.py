@@ -225,7 +225,9 @@ class DockerAPI:
         self._tasks: dict[str, asyncio.Task] = {}
         self._info: dict[str, Any] = {}
         self._event_create: dict[str, int] = {}
-        self._event_destroy: dict[str, int] = {}
+        self._event_destroy: dict[str, DockerContainerAPI] = {}
+        self._event_lock = asyncio.Lock()
+        self._add_lock = asyncio.Lock()
         self._dockerStopped = False
         self._subscribers: list[Callable] = []
         self._api: aiodocker.Docker = None
@@ -404,22 +406,23 @@ class DockerAPI:
         for cname in list(self._containers):
 
             # Skip already initialized containers
-            if self._containers[cname]:
+            if cname not in self._containers or self._containers[cname]:
                 continue
 
             _LOGGER.debug("[%s] %s: Container monitored", self._instance, cname)
 
             # Create our Docker Container API
-            self._containers[cname] = DockerContainerAPI(
+            monitor = DockerContainerAPI(
                 self._config,
                 self._api,
                 cname,
                 on_gone=self._container_gone,
             )
-            await self._containers[cname].init()
+            self._containers[cname] = monitor
+            await monitor.init()
 
-            # Gone between list and attach: no monitor, a create event adds it
-            if self._containers[cname]._task is None:
+            # Ownership may have changed while attachment awaited Docker.
+            if monitor._task is None and self._containers.get(cname) is monitor:
                 del self._containers[cname]
 
         self._hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._monitor_stop)
@@ -617,11 +620,6 @@ class DockerAPI:
                 # Only monitor container events
                 if event["Type"] == CONTAINER:
                     if event["Action"] == "create":
-                        # Check if another task is running, ifso, we don't create a new one
-                        taskcreated = (
-                            True if self._event_create or self._event_destroy else False
-                        )
-
                         cname = event["Actor"]["Attributes"]["name"]
                         self._names.add(cname)
 
@@ -639,28 +637,30 @@ class DockerAPI:
                             )
                             self._event_create[cname] = 0
                         else:
-                            _LOGGER.error(
+                            _LOGGER.debug(
                                 "[%s] %s: Event create container, but already in working table?",
                                 self._instance,
                                 cname,
                             )
 
-                        if self._event_create and not taskcreated:
+                        if self._event_create:
                             await self._container_create_destroy()
 
                     elif event["Action"] == "destroy":
-                        # Check if another task is running, ifso, we don't create a new one
-                        taskcreated = (
-                            True if self._event_create or self._event_destroy else False
-                        )
-
                         cname = event["Actor"]["Attributes"]["name"]
+                        monitor = self._containers.get(cname)
+                        event_id = event["Actor"].get("ID")
+                        attached = getattr(monitor, "_container", None)
+                        if event_id and attached is not None and event_id != attached._id:
+                            _LOGGER.debug("[%s] %s: Ignoring destroy for old ID %s",
+                                          self._instance, cname, event_id)
+                            continue
                         self._names.discard(cname)
 
                         # Remove container name to containers to be monitored this has to
                         # be a new task, otherwise it will block our event monitoring
                         if cname in self._event_create:
-                            _LOGGER.warning(
+                            _LOGGER.debug(
                                 "[%s] %s: Event destroy received, but create wasn't executed yet",
                                 self._instance,
                                 cname,
@@ -678,14 +678,14 @@ class DockerAPI:
                                 self._instance,
                                 cname,
                             )
-                            self._event_destroy[cname] = 0
+                            self._event_destroy[cname] = self._containers[cname]
                         else:
-                            _LOGGER.error(
+                            _LOGGER.debug(
                                 "%s: Event destroy container, but already in working table?",
                                 cname,
                             )
 
-                        if self._event_destroy and not taskcreated:
+                        if self._event_destroy:
                             await self._container_create_destroy()
                     elif event["Action"] == "rename":
                         # during a docker-compose up -d <container> the old container can be renamed
@@ -704,7 +704,7 @@ class DockerAPI:
                         # A pending create of the old name is obsolete, the
                         # container now has the new name
                         if oname in self._event_create:
-                            _LOGGER.warning(
+                            _LOGGER.debug(
                                 "[%s] %s: Event rename received, but create wasn't executed yet",
                                 self._instance,
                                 oname,
@@ -726,9 +726,9 @@ class DockerAPI:
                                     self._instance,
                                     oname,
                                 )
-                                self._event_destroy[oname] = 0
+                                self._event_destroy[oname] = self._containers[oname]
                             else:
-                                _LOGGER.error(
+                                _LOGGER.debug(
                                     "%s: Event rename (destroy) container, but already in working table?",
                                     oname,
                                 )
@@ -740,12 +740,6 @@ class DockerAPI:
                         # Second re-add the container under its new name, when that
                         # name is selected (e.g. 'docker rename' to a selected name)
                         if is_container_selected(self._config, cname):
-                            taskcreated = (
-                                True
-                                if self._event_create or self._event_destroy
-                                else False
-                            )
-
                             if cname not in self._event_create:
                                 _LOGGER.debug(
                                     "[%s] %s: Event rename (create) container",
@@ -754,13 +748,13 @@ class DockerAPI:
                                 )
                                 self._event_create[cname] = 0
                             else:
-                                _LOGGER.error(
+                                _LOGGER.debug(
                                     "[%s] %s: Event rename (create) container, but already in working table?",
                                     self._instance,
                                     cname,
                                 )
 
-                            if self._event_create and not taskcreated:
+                            if self._event_create:
                                 await self._container_create_destroy()
                         elif oname not in self._containers:
                             _LOGGER.debug(
@@ -809,90 +803,89 @@ class DockerAPI:
     async def _container_create_destroy(self) -> None:
         """Handles create or destroy of container events."""
 
-        try:
+        async with self._event_lock:
             while self._event_create or self._event_destroy:
-                # Go through create loop first
-                for cname in self._event_create:
+                # Pop before awaiting: a failed item cannot poison the worker state.
+                for cname, monitor in list(self._event_destroy.items()):
+                    self._event_destroy.pop(cname, None)
+                    try:
+                        await self._container_remove(cname, monitor)
+                    except Exception:
+                        _LOGGER.exception("[%s] %s: Failed to retire container",
+                                          self._instance, cname)
+
+                for cname in list(self._event_create):
                     if self._event_create[cname] > 2:
                         del self._event_create[cname]
-                        await self._container_add(cname)
-                        break
+                        try:
+                            await self._container_add(cname)
+                        except Exception:
+                            _LOGGER.exception("[%s] %s: Failed to attach container",
+                                              self._instance, cname)
                     else:
                         self._event_create[cname] += 1
-                else:
-                    # If all create, we can handle the destroy loop
-                    for cname in self._event_destroy:
-                        await self._container_remove(cname)
-
-                    self._event_destroy = {}
-
-                # Sleep for 1 second, don't try to create it too fast
-                await asyncio.sleep(1)
-
-        except Exception as err:
-            exc_info = True if str(err) == "" else False
-            _LOGGER.error(
-                "[%s]: container_create_destroy (%s)",
-                self._instance,
-                str(err),
-                exc_info=exc_info,
-            )
+                if self._event_create or self._event_destroy:
+                    await asyncio.sleep(1)
 
     #############################################################
     async def _container_add(self, cname: str) -> None:
-        if not is_container_selected(self._config, cname):
-            _LOGGER.debug("[%s] %s: Container not selected", self._instance, cname)
-            return
-
-        if cname in self._containers:
-            existing = self._containers[cname]
-            if existing is not None and await existing.is_attached_to_current():
-                _LOGGER.debug(
-                    "[%s] %s: Container already monitored", self._instance, cname
-                )
+        async with self._add_lock:
+            if not is_container_selected(self._config, cname):
+                _LOGGER.debug("[%s] %s: Container not selected", self._instance, cname)
                 return
 
-            # The container was recreated (new id) while we still hold the old
-            # monitor, e.g. the destroy event was missed (#188), or an earlier
-            # start of the monitor failed. Replace it instead of giving up.
-            _LOGGER.warning(
-                "[%s] %s: Container already monitored, replacing stale monitor",
-                self._instance,
+            while cname in self._containers:
+                existing = self._containers[cname]
+                attached = existing is not None and await existing.is_attached_to_current()
+                # Docker lookup yields: retirement may have changed ownership.
+                if self._containers.get(cname) is not existing:
+                    continue
+                if attached:
+                    _LOGGER.debug(
+                        "[%s] %s: Container already monitored", self._instance, cname
+                    )
+                    return
+
+                # The container was recreated (new id) while we still hold the old
+                # monitor, e.g. the destroy event was missed (#188), or an earlier
+                # start of the monitor failed. Replace it instead of giving up.
+                _LOGGER.debug(
+                    "[%s] %s: Container already monitored, replacing stale monitor",
+                    self._instance,
+                    cname,
+                )
+                await self._container_remove(cname, existing)
+
+            _LOGGER.debug("[%s] %s: Starting Container Monitor", self._instance, cname)
+
+            # Create our Docker Container API
+            monitor = DockerContainerAPI(
+                self._config,
+                self._api,
                 cname,
+                atInit=False,
+                on_gone=self._container_gone,
             )
-            await self._container_remove(cname)
+            self._containers[cname] = monitor
 
-        _LOGGER.debug("[%s] %s: Starting Container Monitor", self._instance, cname)
+            # We should wait until container is attached
+            result = await monitor._initGetContainer()
 
-        # Create our Docker Container API
-        monitor = DockerContainerAPI(
-            self._config,
-            self._api,
-            cname,
-            atInit=False,
-            on_gone=self._container_gone,
-        )
-        self._containers[cname] = monitor
+            if not result:
+                # Don't keep a monitor without container, a later create event of
+                # this name would otherwise be skipped as already monitored (#166)
+                if self._containers.get(cname) is monitor:
+                    del self._containers[cname]
+            else:
+                # Lets wait 1 second before we try to create sensors/switches/buttons
+                await asyncio.sleep(1)
 
-        # We should wait until container is attached
-        result = await monitor._initGetContainer()
-
-        if not result:
-            # Don't keep a monitor without container, a later create event of
-            # this name would otherwise be skipped as already monitored (#166)
-            if self._containers.get(cname) is monitor:
-                del self._containers[cname]
-            _LOGGER.warning(
-                "[%s] %s: Problem during start of monitoring", self._instance, cname
-            )
-        else:
-            # Lets wait 1 second before we try to create sensors/switches/buttons
-            await asyncio.sleep(1)
-
-            # The platforms of the config entry add the entities
-            async_dispatcher_send(
-                self._hass, SIGNAL_CONTAINER_ADDED.format(self._instance), cname
-            )
+                if self._containers.get(cname) is not monitor or monitor._retired:
+                    return
+                # The platforms of the config entry add the entities
+                async_dispatcher_send(
+                    self._hass, SIGNAL_CONTAINER_ADDED.format(self._instance), cname
+                )
 
     #############################################################
     def _container_gone(self, monitor: "DockerContainerAPI") -> None:
@@ -903,30 +896,38 @@ class DockerAPI:
         of the name starts a fresh monitor with entities.
         """
         cname = monitor.get_name()
-        if self._containers.get(cname) is not monitor:
+        if self._containers.get(cname) is not monitor or monitor._retired:
             return
+        monitor._retired = True
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "[%s] %s: Container does not exist anymore, removing monitor",
             self._instance,
             cname,
         )
         # Own task: the monitor calls this from its loop, which gets cancelled
         self._hass.async_create_background_task(
-            self._container_remove(cname), f"{DOMAIN} remove {cname}"
+            self._container_remove(cname, monitor), f"{DOMAIN} remove {cname}"
         )
 
     #############################################################
-    async def _container_remove(self, cname: str) -> None:
-        if cname in self._containers:
-            _LOGGER.debug("[%s] %s: Stopping Container Monitor", self._instance, cname)
-            if self._containers[cname] is not None:
-                self._containers[cname].cancel_task()
-                self._containers[cname].remove_entities()
-                await asyncio.sleep(0.1)
-            del self._containers[cname]
-        else:
-            _LOGGER.error("[%s] %s: Container is NOT monitored", self._instance, cname)
+    async def _container_remove(
+        self, cname: str, monitor: "DockerContainerAPI | None" = None
+    ) -> None:
+        """Retire this identity once, without deleting a replacement after an await."""
+        if monitor is None:
+            monitor = self._containers.get(cname)
+        if self._containers.get(cname) is monitor:
+            self._containers.pop(cname, None)
+        if monitor is None or monitor._cleanup_started:
+            return
+        monitor._cleanup_started = True
+        monitor.cancel_task()
+        monitor.remove_entities()
+        # Entity callbacks schedule async removal. Yield before publishing replacements.
+        await asyncio.sleep(0.1)
+        if monitor._task is not None and monitor._task is not asyncio.current_task():
+            await asyncio.gather(monitor._task, return_exceptions=True)
 
     #############################################################
     async def _run_docker_info(self) -> None:
@@ -1252,6 +1253,8 @@ class DockerContainerAPI:
         # Called when the container is gone for good (see _handle_container_gone)
         self._on_gone = on_gone
         self._gone = 0
+        self._retired = False
+        self._cleanup_started = False
         self._instance: str = config[CONF_NAME]
         self._memChange: int = config[CONF_MEMORYCHANGE]
         self._name = cname
@@ -1265,6 +1268,8 @@ class DockerContainerAPI:
         self._cpu_old: dict[str, int] = {}
         self._network_old: dict[str, int | datetime] = {}
         self._network_error = 0
+        self._sample_error = 0
+        self._poll_error = 0
         self._memory_error = 0
         self._cpu_error = 0
         self._memory_prev: float | None = None
@@ -1286,7 +1291,8 @@ class DockerContainerAPI:
             try:
                 self._container = await self._api.containers.get(self._name)
             except aiodocker.exceptions.DockerError as err:
-                _LOGGER.warning(
+                log = _LOGGER.debug if err.status == 404 else _LOGGER.error
+                log(
                     "[%s] %s: Container not available anymore (1) (%s)",
                     self._instance,
                     self._name,
@@ -1304,7 +1310,8 @@ class DockerContainerAPI:
                 )
                 return  # Could be necessary to do something more here
 
-            self._task = asyncio.create_task(self._run())
+            if not self._retired:
+                self._task = asyncio.create_task(self._run())
 
     #############################################################
     async def _initGetContainer(self) -> bool:
@@ -1315,7 +1322,8 @@ class DockerContainerAPI:
         try:
             self._container = await self._api.containers.get(self._name)
         except aiodocker.exceptions.DockerError as err:
-            _LOGGER.warning(
+            log = _LOGGER.debug if err.status == 404 else _LOGGER.error
+            log(
                 "[%s] %s: Container not available anymore (2a) (%s)",
                 self._instance,
                 self._name,
@@ -1333,21 +1341,29 @@ class DockerContainerAPI:
             )
             return False
 
+        if self._retired:
+            return False
         self._task = asyncio.create_task(self._run())
-
         return True
 
     #############################################################
     async def is_attached_to_current(self) -> bool:
         """True if the monitor runs for the container that has its name now."""
-        if self._task is None or self._task.done():
+        task = self._task
+        if self._retired or task is None or task.done():
             return False
         try:
             current = await self._api.containers.get(self._name)
-        except aiodocker.exceptions.DockerError:
+        except aiodocker.exceptions.DockerError as err:
+            if err.status != 404:
+                raise
             return False
-        return getattr(self, "_container", None) is not None and (
-            current._id == self._container._id
+        return (
+            not self._retired
+            and self._task is task
+            and not task.done()
+            and getattr(self, "_container", None) is not None
+            and current._id == self._container._id
         )
 
     #############################################################
@@ -1370,7 +1386,7 @@ class DockerContainerAPI:
                 raise
             self._gone += 1
             if self._gone >= 2 and self._on_gone is not None:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "[%s] %s: Container not available anymore (3a) (%s), "
                     "dropping its monitor",
                     self._instance,
@@ -1379,7 +1395,7 @@ class DockerContainerAPI:
                 )
                 self._on_gone(self)
             else:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "[%s] %s: Container not available anymore (3a) (%s). Retry in %d seconds",
                     self._instance,
                     self._name,
@@ -1390,22 +1406,21 @@ class DockerContainerAPI:
 
         self._gone = 0
         if container._id == getattr(self._container, "_id", None):
-            _LOGGER.error(
-                "[%s] %s: Container not available (3a) (%s). Retry in %d seconds",
-                self._instance,
-                self._name,
-                error,
-                self._retry_interval,
-            )
+            self._log_poll_error(error)
             return False
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "[%s] %s: Re-attached to recreated container", self._instance, self._name
         )
         self._container = container
         # Counters of the new container start again from zero
         self._cpu_old = {}
         self._network_old = {}
+        self._memory_prev = None
+        self._memory_percent_prev = None
+        self._memory_prev_breach = False
+        self._sample_error = self._cpu_error = self._memory_error = self._network_error = 0
+        self._poll_error = 0
         return True
 
     #############################################################
@@ -1451,7 +1466,7 @@ class DockerContainerAPI:
     async def _run(self) -> None:
         """Loop to gather container info/stats."""
 
-        while True:
+        while not self._retired:
             sendNotify = True
             error = True
 
@@ -1474,6 +1489,7 @@ class DockerContainerAPI:
                 # No error, so normal interval
                 error = False
                 self._gone = 0
+                self._poll_error = 0
 
             except (concurrent.futures._base.CancelledError, asyncio.CancelledError):
                 _LOGGER.debug(
@@ -1494,39 +1510,16 @@ class DockerContainerAPI:
                     ):
                         break
                     except Exception as err2:  # noqa: BLE001
-                        _LOGGER.error(
-                            "[%s] %s: Container not available anymore (3a) (%s). Retry in %d seconds",
-                            self._instance,
-                            self._name,
-                            str(err2),
-                            self._retry_interval,
-                        )
+                        self._log_poll_error(err2)
                 else:
-                    _LOGGER.error(
-                        "[%s] %s: Container not available anymore (3a) (%s). Retry in %d seconds",
-                        self._instance,
-                        self._name,
-                        str(err),
-                        self._retry_interval,
-                    )
-            except asyncio.TimeoutError as err:
-                _LOGGER.error(
-                    "[%s] %s: Container not available anymore (3d) TimeoutError. Retry in %d seconds",
-                    self._instance,
-                    self._name,
-                    self._retry_interval,
-                )
+                    self._log_poll_error(err)
+            except asyncio.TimeoutError:
+                self._log_poll_error("TimeoutError")
             except Exception as err:
-                exc_info = True if str(err) == "" else False
-                _LOGGER.error(
-                    "[%s] %s: Container not available anymore (3b) (%s). Retry in %d seconds",
-                    self._instance,
-                    self._name,
-                    str(err),
-                    self._retry_interval,
-                    exc_info=exc_info,
-                )
+                self._log_poll_error(err, exc_info=not str(err))
 
+            if self._retired:
+                break
             # Send values to sensors/switch
             if sendNotify:
                 self._notify()
@@ -1554,15 +1547,11 @@ class DockerContainerAPI:
         self._info[CONTAINER_INFO_IMAGE] = raw["Config"]["Image"]
         self._info[CONTAINER_INFO_IMAGE_HASH] = raw["Image"]
 
-        if self._network_error <= 5:
-            if CONTAINER_INFO_NETWORK_AVAILABLE not in self._info:
-                self._info[CONTAINER_INFO_NETWORK_AVAILABLE] = (
-                    False
-                    if raw["HostConfig"]["NetworkMode"] in ["host", "none"]
-                    else True
-                )
-        else:
-            self._info[CONTAINER_INFO_NETWORK_AVAILABLE] = False
+        # Availability is a network-mode capability, not an error counter.
+        # Incomplete packets must not permanently disable future collection.
+        self._info[CONTAINER_INFO_NETWORK_AVAILABLE] = (
+            raw["HostConfig"]["NetworkMode"] not in ("host", "none")
+        )
 
         try:
             self._info[CONTAINER_INFO_HEALTH] = raw["State"]["Health"]["Status"]
@@ -1614,6 +1603,28 @@ class DockerContainerAPI:
             )
 
     #############################################################
+    def _log_poll_error(self, error: object, *, exc_info: bool = False) -> None:
+        """Report real polling failures once until a complete poll succeeds."""
+        log = _LOGGER.error if self._poll_error == 0 else _LOGGER.debug
+        log("[%s] %s: Container polling failed (%s). Retry in %d seconds",
+            self._instance, self._name, str(error), self._retry_interval,
+            exc_info=exc_info)
+        self._poll_error += 1
+
+    def _incomplete_stats(self, section: str, error: object, raw: object) -> None:
+        """Allow two transient samples, then warn once per consecutive streak."""
+        attr = f"_{section}_error"
+        failures = getattr(self, attr) + 1
+        setattr(self, attr, failures)
+        if failures == 1:
+            _LOGGER.debug("[%s] %s: Incomplete %s statistics (%s); raw=%s",
+                          self._instance, self._name, section, error, raw)
+        elif failures == 3:
+            _LOGGER.warning(
+                "[%s] %s: Incomplete %s statistics for 3 consecutive samples (%s)",
+                self._instance, self._name, section, error)
+
+    #############################################################
     async def _run_container_stats(self) -> None:
         # Initialize stats information
         stats: dict[str, Any] = {}
@@ -1625,10 +1636,19 @@ class DockerContainerAPI:
 
         # Get container stats
         raw: dict[str, Any] = await fetch_stats(self._container)
-        if not raw:
+        try:
+            if not raw:
+                raise ValueError("empty packet")
+            stats["read"] = parser.parse(raw["read"])
+            if stats["read"].tzinfo is None:
+                raise ValueError("missing timestamp timezone")
+        except (KeyError, TypeError, ValueError, OverflowError) as err:
+            self._incomplete_stats("sample", err, raw)
+            self._cpu_old = {}
+            self._network_old = {}
+            self._stats = {}
             return
-
-        stats["read"] = parser.parse(raw["read"])
+        self._sample_error = 0
 
         # Gather CPU information
         cpu_stats = {}
@@ -1657,30 +1677,10 @@ class DockerContainerAPI:
 
             self._cpu_error = 0
 
-        except KeyError as err:
-            # Something wrong with the raw data
-            if self._cpu_error == 0:
-                _LOGGER.error(
-                    "[%s] %s: Cannot determine CPU usage for container (%s)",
-                    self._instance,
-                    self._name,
-                    str(err),
-                )
-                if "cpu_stats" in raw:
-                    _LOGGER.error(
-                        "[%s] %s: Raw 'cpu_stats' %s",
-                        self._instance,
-                        self._name,
-                        raw["cpu_stats"],
-                    )
-                else:
-                    _LOGGER.error(
-                        "[%s] %s: No 'cpu_stats' found in raw packet",
-                        self._instance,
-                        self._name,
-                    )
-
-            self._cpu_error += 1
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as err:
+            self._incomplete_stats("cpu", err, raw.get("cpu_stats"))
+            self._cpu_old = {}
+            cpu_stats = {}
 
         # Gather memory information
         memory_stats: dict[str, float | None] = {}
@@ -1708,29 +1708,9 @@ class DockerContainerAPI:
 
             self._memory_error = 0
 
-        except (KeyError, TypeError) as err:
-            if self._memory_error == 0:
-                _LOGGER.error(
-                    "[%s] %s: Cannot determine memory usage for container (%s)",
-                    self._instance,
-                    self._name,
-                    str(err),
-                )
-                if "memory_stats" in raw:
-                    _LOGGER.error(
-                        "[%s] %s: Raw 'memory_stats' %s",
-                        self._instance,
-                        self._name,
-                        raw["memory_stats"],
-                    )
-                else:
-                    _LOGGER.error(
-                        "[%s] %s: No 'memory_stats' found in raw packet",
-                        self._instance,
-                        self._name,
-                    )
-
-            self._memory_error += 1
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as err:
+            self._incomplete_stats("memory", err, raw.get("memory_stats"))
+            memory_stats = {}
 
         _LOGGER.debug(
             "[%s] %s: CPU: %s%%, Memory: %sMB, %s%%",
@@ -1819,32 +1799,20 @@ class DockerContainerAPI:
                         network_new["read"] - self._network_old["read"]
                     ).total_seconds()
 
-                    # Speed cannot be below zero
-                    if tx < 0:
-                        _LOGGER.warning(
-                            "[%s] %s: network tx became negative (%s)",
-                            self._instance,
-                            self._name,
-                            tx,
+                    # Restarted counters or non-increasing timestamps establish a
+                    # new baseline; neither is a negative transfer rate or fault.
+                    if tx < 0 or rx < 0 or tim <= 0:
+                        _LOGGER.debug("[%s] %s: Resetting network baseline",
+                                      self._instance, self._name)
+                        network_stats["speed_tx"] = 0
+                        network_stats["speed_rx"] = 0
+                    else:
+                        network_stats["speed_tx"] = toKB(
+                            float(tx) / tim, self._config[CONF_PRECISION_NETWORK_KB]
                         )
-                        tx = 0
-
-                    if rx < 0:
-                        _LOGGER.warning(
-                            "[%s] %s: network rx became negative (%s)",
-                            self._instance,
-                            self._name,
-                            rx,
+                        network_stats["speed_rx"] = toKB(
+                            float(rx) / tim, self._config[CONF_PRECISION_NETWORK_KB]
                         )
-                        rx = 0
-
-                    # Calculate speed, also convert to kByte/sec
-                    network_stats["speed_tx"] = toKB(
-                        float(tx) / tim, self._config[CONF_PRECISION_NETWORK_KB]
-                    )
-                    network_stats["speed_rx"] = toKB(
-                        float(rx) / tim, self._config[CONF_PRECISION_NETWORK_KB]
-                    )
 
                 self._network_old = network_new
 
@@ -1856,38 +1824,11 @@ class DockerContainerAPI:
                     network_stats["total_rx"], self._config[CONF_PRECISION_NETWORK_MB]
                 )
 
-            except KeyError as err:
-                _LOGGER.error(
-                    "[%s] %s: Can not determine network usage for container (%s)",
-                    self._instance,
-                    self._name,
-                    str(err),
-                )
-
-                if "networks" in raw:
-                    _LOGGER.error(
-                        "[%s] %s: Raw 'networks' %s",
-                        self._instance,
-                        self._name,
-                        raw["networks"],
-                    )
-                else:
-                    _LOGGER.error(
-                        "[%s] %s: No 'networks' found in raw packet",
-                        self._instance,
-                        self._name,
-                    )
-
-                # Check how many times we got a network error, after 5 times it won't happen
-                # anymore, thus we disable error reporting
-                self._network_error += 1
-                if self._network_error > 5:
-                    _LOGGER.error(
-                        "[%s] %s: Too many errors on 'networks' stats, disabling monitoring",
-                        self._instance,
-                        self._name,
-                    )
-                    self._info[CONTAINER_INFO_NETWORK_AVAILABLE] = False
+                self._network_error = 0
+            except (KeyError, TypeError, ValueError, ZeroDivisionError) as err:
+                self._incomplete_stats("network", err, raw.get("networks"))
+                self._network_old = {}
+                network_stats = {}
 
         # Gather disk information
         disk_stats: dict[str, float | None] = {}
@@ -1940,6 +1881,7 @@ class DockerContainerAPI:
 
     #############################################################
     def cancel_task(self) -> None:
+        self._retired = True
         if self._task is not None:
             _LOGGER.info(
                 "[%s] %s: Cancelling task for container info/stats",
@@ -1966,15 +1908,13 @@ class DockerContainerAPI:
 
     #############################################################
     def remove_entities(self) -> None:
-        if len(self._subscribers) > 0:
-            _LOGGER.debug(
-                "[%s] %s: Removing entities from container", self._instance, self._name
-            )
-
-        for callback in self._subscribers:
-            callback(remove=True)
-
-        self._subscribers.clear()
+        subscribers, self._subscribers = self._subscribers, []
+        for callback in subscribers:
+            try:
+                callback(remove=True)
+            except Exception:
+                _LOGGER.exception("[%s] %s: Entity removal callback failed",
+                                  self._instance, self._name)
 
     #############################################################
     async def _start(self) -> None:

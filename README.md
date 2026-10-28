@@ -36,7 +36,39 @@ When a container is **recreated** — Watchtower update, `docker compose up -d`,
 
 **This fork self-heals.** On a 404 it re-attaches to the recreated container by name (`Re-attached to recreated container`); if the container really is gone, it drops the monitor cleanly so entities are recreated on the next create event. Stats deltas (CPU/network/memory) are reset on re-attach, so no more `network tx/rx became negative` warnings after an update.
 
-Verified live: recreate a container with Watchtower or compose and the monitor recovers itself — no restart needed, no 404 loops.
+### Disappearance, retirement and diagnostic logs
+
+- After two consecutive missing-name lookups, the old monitor is retired: its polling task is cancelled and awaited, subscriptions are detached, and entity removal callbacks are invoked once.
+- Retirement owns a **monitor identity**, not just a name. Concurrent 404/destroy cleanup cannot delete a newer monitor. Duplicate events are harmless; delayed destroy events carrying an old Docker actor ID are ignored.
+- A replacement found during 404 recovery is attached by name with fresh CPU/network/memory baselines. Once retirement finishes, a later `create` event can attach the replacement without restarting Home Assistant.
+- A container disappearing before attachment is a DEBUG diagnostic, not two warnings. Genuine attachment failures (including authentication and connection failures) remain ERRORs.
+
+| Container diagnostic | Reporting policy |
+| --- | --- |
+| Missing container, recreation, reset network counters | DEBUG; a network reset establishes a new baseline with zero speed |
+| Incomplete CPU, memory or network sample | DEBUG on the first; one WARNING on the third consecutive incomplete sample **per section** |
+| Empty sample or missing/invalid timestamp | Same three-sample policy for the whole sample; unavailable values are cleared |
+| Polling exception, including transport/authentication failures | ERROR on the first failure; DEBUG on retries until a successful poll |
+| Valid statistics after incomplete samples | Reset that section's failure streak; keep collecting network data |
+
+These policies are local to each monitor, not global logging filters. Missing sections publish unavailable values rather than invented zero usage. A successful section rearms its warning; replacement attachment resets the streaks.
+
+**Limits:** recovery still needs a reachable Docker API. After a monitor has been retired, discovery of a future container relies on Docker's `create` event (or an integration reload); this is not periodic rediscovery of retired names. Actor-ID protection requires Docker to include that ID; name-only events cannot identify a historical incarnation. Entity removal callbacks schedule Home Assistant work asynchronously: retirement detaches subscriptions but does not promise an exact wall-clock entity-registry removal time. No deployment or production restart is part of the regression tests.
+
+### Regression checks
+
+Dependency-free, isolated regressions compile the actual helper classes/functions from their AST, with Docker and HA globals simulated:
+
+```sh
+python3 -m unittest discover -s tests/standalone -v
+```
+
+They use explicit barriers for concurrency, assert registry/queue/task/subscription state and replacement IDs, and verify log levels/counts. They do **not** prove real Docker or Home Assistant entity-platform integration. Run the existing full HA suite separately with the Python version used by CI:
+
+```sh
+python3.13 -m pip install -r requirements_test.txt
+python3.13 -m pytest -q
+```
 
 ## Installation (HACS)
 
