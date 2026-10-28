@@ -36,7 +36,35 @@ Cuando un contenedor se **recrea** — actualización de Watchtower, `docker com
 
 **Este fork se auto-repara.** Ante un 404 se re-adjunta al contenedor recreado por nombre (`Re-attached to recreated container`); si el contenedor realmente ya no existe, elimina el monitor limpiamente para que las entidades se vuelvan a crear con el siguiente evento `create`. Los deltas de estadísticas (CPU/red/memoria) se reinician al re-adjuntar, así que desaparecen los avisos `network tx/rx became negative` tras una actualización.
 
-Verificado en producción: recrea un contenedor con Watchtower o compose y el monitor se recupera solo — sin reinicios, sin bucles de 404.
+### Retirada segura y diagnóstico
+
+Tras dos ausencias consecutivas por nombre se retira el monitor: se cancela y espera su tarea, se liberan las suscripciones y se invocan una sola vez las retiradas de entidades. La retirada conserva la identidad del monitor; un 404 y un `destroy` concurrentes no pueden borrar un reemplazo. Los eventos duplicados son inocuos y los `destroy` retrasados con un ID antiguo se ignoran.
+
+| Situación del contenedor | Nivel y frecuencia |
+| --- | --- |
+| Desaparición antes del enlace, recreación o reinicio de contadores de red | DEBUG; sin avisos duplicados. Los contadores nuevos establecen una base con velocidad cero |
+| Estadísticas incompletas de CPU, memoria o red | DEBUG en la primera muestra; un WARNING en la tercera consecutiva por sección |
+| Muestra vacía o fecha ausente/inválida | La misma política para la muestra completa; se borran los valores no disponibles |
+| Excepción de consulta, incluida conexión o autenticación | ERROR en el primer fallo; DEBUG en los reintentos hasta una consulta correcta |
+
+Una sección válida reinicia su racha de fallos. No se desactiva la recogida de red por muestras incompletas ni se aplican filtros globales. Un reemplazo detectado al recuperar un 404 se enlaza por nombre y reinicia sus bases de CPU/red/memoria y sus contadores de diagnóstico.
+
+**Límites:** hace falta una API Docker accesible. Después de retirar un monitor, un contenedor futuro se descubre mediante el evento `create` o una recarga de la integración, no mediante una búsqueda periódica de nombres retirados. Sin el ID del actor no es posible distinguir un evento histórico de otro actual solo por nombre. Las retiradas de entidades se programan de forma asíncrona en Home Assistant: liberar las suscripciones no garantiza un instante exacto de desaparición del registro de entidades.
+
+### Pruebas de regresión
+
+```sh
+python3 -m unittest discover -s tests/standalone -v
+```
+
+Estas pruebas aisladas compilan las clases y funciones reales de `helpers.py` mediante AST, con Docker y Home Assistant simulados. Controlan las carreras con barreras explícitas y comprueban registros, colas, tareas, suscripciones, nuevos IDs y niveles/cantidades de logs. No validan un Docker real ni las plataformas de entidades de Home Assistant. La suite completa requiere el entorno de CI:
+
+```sh
+python3.13 -m pip install -r requirements_test.txt
+python3.13 -m pytest -q
+```
+
+Las pruebas no despliegan ni reinician producción.
 
 ## Configuración por la interfaz (v2.0+)
 

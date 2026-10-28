@@ -271,8 +271,8 @@ async def test_failed_start_leaves_no_stale_monitor(
     engine.event("create", "md-new")
     await settle()
     assert "md-new" not in api.list_containers()
-    assert "Problem during start of monitoring" in caplog.text
-    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+    assert "Problem during start of monitoring" not in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= 30]
 
     # the next container of that name is monitored again (was: "already
     # monitored" forever)
