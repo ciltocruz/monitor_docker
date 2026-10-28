@@ -35,6 +35,11 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, mock_docker_api) -> 
     )
     assert result["step_id"] == "containers"
 
+    # The first form selects the mode; the second selects container names.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"containers_mode": "selected"}
+    )
+    assert result["step_id"] == "containers"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"containers": ["esphome"]}
     )
@@ -147,6 +152,10 @@ async def test_reconfigure_lists_every_container(
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"next_step_id": "containers"}
+    )
+    assert result["step_id"] == "containers"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"containers_mode": "selected"}
     )
     assert result["step_id"] == "containers"
     selector = result["data_schema"].schema["containers"]
