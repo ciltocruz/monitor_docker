@@ -38,10 +38,10 @@ S4. "Reproduce primero la carrera con una prueba determinista, sin esperas tempo
 S5. "cuando termines, lo subes todo al repo, haces PR y haces nueva versión, ya mañana actualizo yo manualmente en home assistant."
 
 ## Tasks
-T1 | S1,S2,S4 | done | inline: identity/liveness revalidated after awaits; GREEN 22 standalone tests | commit: pending
-T2 | S3,S4 | done | inline: same helper file; no safe independent writer surface | commit: pending
-T3 | S1-S4 | done | independent verifier passed including focused same/new-ID recheck; EN/ES docs; native reviewDue=false | commit: pending
-T4 | S5 | in_progress | inline: version 2.1.2, work-unit commit, push, PR, CI and release | commit: pending
+T1 | S1,S2,S4 | done | inline: identity/liveness revalidated after awaits; GREEN 22 standalone tests | commit: 7f4820230bbfd44419510561cac1256dd1ab2047
+T2 | S3,S4 | done | inline: same helper file; no safe independent writer surface | commit: 7f4820230bbfd44419510561cac1256dd1ab2047
+T3 | S1-S4 | done | independent verifier passed including focused same/new-ID recheck; EN/ES docs; native reviewDue=false | commit: 7f4820230bbfd44419510561cac1256dd1ab2047
+T4 | S5 | in_progress | user reports GitHub authentication updated; resume push, PR, CI, merge and v2.1.2 release | local work-unit commit: 7f4820230bbfd44419510561cac1256dd1ab2047
 
 ## Log
 L13. Focused independent recheck passed: same-ID and new-ID Event-barrier probes with real polling/info; exactly two old queries, one removal, old task done/subscribers empty, live replacement, zero WARNING/ERROR. All 22 standalone tests pass. Native assessment after staging: native medium, high verification by concurrency escalation; reviewDue=false (under_budget), so no START. Existing full HA suite will run in CI. Target has no branch protection; all three workflows must pass before merge. No approved-issue/type-label policy exists in target (issues disabled, no template; standard bug label available).
@@ -181,3 +181,8 @@ L8. User: "cuando termines, lo subes todo al repo, haces PR y haces nueva versi�
 L9. Added T4 delivery. Verified origin github.com/ciltocruz/monitor_docker, default master; latest release v2.1.1 has no assets. Issues disabled, no PR template. HA pytest attempt exited 1: No module named pytest. Native assess unassessable until untracked scope declared; concurrency requires independent verifier regardless.
 L10. Self-review additional RED (initial attachment KeyError and inherited network disable) corrected; GREEN 21 tests. Reopened T1/T2 during correction, now complete.
 L11. User selected: "Una sola PR — menos recomendable por tamaño" and "Sí, fusionar y publicar v2.1.2". Delivery strategy single-pr, no chain. Merge and release authorized only after satisfactory checks/reviews; no HA deployment. Manifest patch version updated.
+
+L14. Work-unit commit 7f4820230bbfd44419510561cac1256dd1ab2047 created on fix/container-lifecycle. Committed assessment against actual baseline 19cfe658aa79ecd0ec2d12781ba60f7d4a0134be: native medium, verification high by concurrency escalation, reviewDue=false/under_budget; independent verifier already passed. An initial assess used an incorrect abbreviated base and failed read-only; local Git identity was checked and the actual full baseline used, with no repository mutation from the failed assess.
+L15. Authorized push `git push -u origin fix/container-lifecycle` failed exit 128 / HTTP 403: "Permission to ciltocruz/monitor_docker.git denied to ciltocruz." No retry, alternate credentials or permission changes attempted. T4 blocked on a GitHub credential authorized to write repository contents. PR, remote CI, merge and release not performed; production untouched.
+
+L16. User: "ya" after GitHub credential setup instructions. Resume authorized push with current credentials; no agent credential changes.
