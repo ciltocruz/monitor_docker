@@ -93,6 +93,14 @@ Este componente fue desarrollado por ualex73 para monitorizar un entorno Docker 
 
 ## Créditos
 
+<p>
+  <a href="https://github.com/ualex73"><img src="https://github.com/ualex73.png?size=96" width="96" alt="ualex73" title="ualex73 — autor original"/></a>
+  <a href="https://github.com/dala318"><img src="https://github.com/dala318.png?size=96" width="96" alt="dala318" title="dala318 — config flow"/></a>
+  <a href="https://github.com/ak111pro"><img src="https://github.com/ak111pro.png?size=96" width="96" alt="ak111pro" title="ak111pro — finalización del config flow"/></a>
+  <a href="https://github.com/Sanderhuisman"><img src="https://github.com/Sanderhuisman.png?size=96" width="96" alt="Sanderhuisman" title="Sanderhuisman — Docker Monitor original"/></a>
+  <a href="https://github.com/ciltocruz"><img src="https://github.com/ciltocruz.png?size=96" width="96" alt="ciltocruz" title="ciltocruz — mantenedor del fork"/></a>
+</p>
+
 - [ualex73](https://github.com/ualex73) — autor original de Monitor Docker.
 - [dala318](https://github.com/dala318) — config flow y flujos de reconfigure/reauth/import (upstream #173, PRs #174–#183).
 - [ak111pro](https://github.com/ak111pro) — finalización del config flow: compatibilidad con HA 2026.10, preservación de entity_ids heredados, filtro de contenedores seleccionados, dispatcher para contenedores tardíos, tests y CI.

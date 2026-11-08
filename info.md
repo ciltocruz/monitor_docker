@@ -258,6 +258,14 @@ monitor_docker:
 
 ## Credits
 
+<p>
+  <a href="https://github.com/ualex73"><img src="https://github.com/ualex73.png?size=96" width="96" alt="ualex73" title="ualex73 — original author"/></a>
+  <a href="https://github.com/dala318"><img src="https://github.com/dala318.png?size=96" width="96" alt="dala318" title="dala318 — config flow"/></a>
+  <a href="https://github.com/ak111pro"><img src="https://github.com/ak111pro.png?size=96" width="96" alt="ak111pro" title="ak111pro — config flow completion"/></a>
+  <a href="https://github.com/Sanderhuisman"><img src="https://github.com/Sanderhuisman.png?size=96" width="96" alt="Sanderhuisman" title="Sanderhuisman — original Docker Monitor"/></a>
+  <a href="https://github.com/ciltocruz"><img src="https://github.com/ciltocruz.png?size=96" width="96" alt="ciltocruz" title="ciltocruz — fork maintainer"/></a>
+</p>
+
 * [ualex73](https://github.com/ualex73) — original author of Monitor Docker, which this fork is based on.
 * [dala318](https://github.com/dala318) — config flow with reconfigure/reauth/import flows (upstream #173, PRs #174–#183).
 * [ak111pro](https://github.com/ak111pro) — config flow completion: Home Assistant 2026.10 compatibility, legacy entity ID preservation, container selection filter, late-container dispatcher, tests and CI.
