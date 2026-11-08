@@ -14,6 +14,10 @@
 
 </div>
 
+> [!WARNING]
+> **v3.0.0 breaking change:** this and future releases require **Home Assistant 2026.11 or newer**. The integration is released for the new [Marketplace](https://www.home-assistant.io/integrations/marketplace/) era, built into Home Assistant 2026.11. If you stay on an older Home Assistant, pin version [v2.1.3](https://github.com/ciltocruz/monitor_docker/releases/tag/v2.1.3).
+
+
 ## What this fork adds
 
 - 🖥️ **Setup entirely from the UI** — add, reconfigure and re-authenticate the integration from *Settings → Devices & Services*. No YAML required (upstream #173).

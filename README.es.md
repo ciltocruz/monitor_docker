@@ -91,6 +91,9 @@ Instalación manual: copia `custom_components/monitor_docker/` (del zip de una [
 
 Este componente fue desarrollado por ualex73 para monitorizar un entorno Docker desde [Home-Assistant](https://www.home-assistant.io), inspirado en [Docker Monitor](https://github.com/Sanderhuisman/docker_monitor) de Sander Huisman (migrado de hilos a asyncio). Sobre ese trabajo, este fork mantiene el fix de recreación y la configuración por interfaz. El **README completo en inglés** (ejemplos de `docker run`/compose, soporte TLS, Raspberry Pi, opciones de configuración detalladas, preguntas frecuentes) está en [README.md](README.md).
 
+> [!WARNING]
+> **Cambio crítico en v3.0.0:** esta versión y las siguientes requieren **Home Assistant 2026.11 o superior**. La integración se publica para la era del nuevo [Marketplace](https://www.home-assistant.io/integrations/marketplace/), integrado en Home Assistant 2026.11. Si mantienes una versión anterior, usa [v2.1.3](https://github.com/ciltocruz/monitor_docker/releases/tag/v2.1.3).
+
 ## Créditos
 
 <p>

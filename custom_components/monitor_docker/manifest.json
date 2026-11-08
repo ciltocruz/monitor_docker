@@ -1,11 +1,12 @@
 {
   "domain": "monitor_docker",
   "name": "Monitor Docker",
-  "codeowners": ["@ualex73"],
+  "codeowners": ["@ualex73", "@ciltocruz"],
   "config_flow": true,
-  "documentation": "https://github.com/ualex73/monitor_docker",
+  "documentation": "https://github.com/ciltocruz/monitor_docker",
+  "homeassistant": "2026.11.0",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/ualex73/monitor_docker/issues",
+  "issue_tracker": "https://github.com/ciltocruz/monitor_docker/issues",
   "requirements": ["aiodocker==0.25.0", "python-dateutil==2.9.0.post0"],
-  "version": "2.1.3"
+  "version": "3.0.0"
 }
