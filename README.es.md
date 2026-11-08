@@ -99,4 +99,4 @@ Este componente fue desarrollado por ualex73 para monitorizar un entorno Docker 
 
 ## Licencia
 
-[MIT](LICENSE.md)
+[Apache License 2.0](LICENSE.md)

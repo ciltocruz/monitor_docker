@@ -354,7 +354,11 @@ monitor_docker:
 
 ## Credits
 
-* [Sanderhuisman](https://github.com/Sanderhuisman/docker_monitor)
+* [ualex73](https://github.com/ualex73) — original author of Monitor Docker, which this fork is based on.
+* [dala318](https://github.com/dala318) — config flow with reconfigure/reauth/import flows (upstream #173, PRs #174–#183).
+* [ak111pro](https://github.com/ak111pro) — config flow completion: Home Assistant 2026.10 compatibility, legacy entity ID preservation, container selection filter, late-container dispatcher, tests and CI.
+* [Sanderhuisman](https://github.com/Sanderhuisman/docker_monitor) — original Docker Monitor, whose work inspired this integration.
+* [ciltocruz](https://github.com/ciltocruz) — fork maintainer: recreation fix, excluded-containers (blacklist) mode and safe container retirement.
 
 ## License
 
