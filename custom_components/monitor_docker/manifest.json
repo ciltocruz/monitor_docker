@@ -4,7 +4,6 @@
   "codeowners": ["@ualex73", "@ciltocruz"],
   "config_flow": true,
   "documentation": "https://github.com/ciltocruz/monitor_docker",
-  "homeassistant": "2026.11.0",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ciltocruz/monitor_docker/issues",
   "requirements": ["aiodocker==0.25.0", "python-dateutil==2.9.0.post0"],
